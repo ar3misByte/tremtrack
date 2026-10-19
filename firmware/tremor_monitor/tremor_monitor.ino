@@ -40,7 +40,7 @@
  * Tilting the board rolls the ball "downhill": roll -> horizontal, pitch -> vertical.
  *
  * OUTPUT (50 lines/s), one CSV line starting with '$':
- *   $,pitch,roll,yaw,fPitch,fRoll,fYaw,tremor,dir,ampP,ampR,ampY,freq,q,walking,stepHz,cycles,bpm,spo2,ppgState,pulse
+ *   $,pitch,roll,yaw,fPitch,fRoll,fYaw,tremor,dir,ampP,ampR,ampY,freq,q,walking,stepHz,cycles,bpm,spo2,ppgState,pulse,axes,aMax,aMin
  *     pitch/roll/yaw     : degrees
  *     fPitch/fRoll/fYaw  : band-passed gyro (dps) for the waveform
  *     tremor             : 1 while a tremor is active
@@ -53,6 +53,10 @@
  *     bpm, spo2          : heart rate (beats/min) and oxygen saturation (%), 0 = no valid reading yet
  *     ppgState           : 0 = MAX30102 not found, 1 = no finger, 2 = measuring, 3 = valid reading
  *     pulse              : filtered IR pulse wave (arbitrary units) for the page's pulse trace
+ *     axes               : bit mask of the axes shaking right now (1 = pitch, 2 = roll, 4 = yaw); 0 when no tremor.
+ *                          More than one bit = shaking on several axes at once (e.g. 5 = yes-yes + no-no).
+ *     aMax, aMin         : largest and smallest |acceleration| (g) over the samples since the previous line
+ *                          (impact / free-fall detection in the app). Appended fields: older pages ignore them.
  * Lines starting with '#' are status messages for humans.
  */
 
@@ -109,6 +113,11 @@ const float CYC_TOL      = 0.30f;        // a cycle counts if its length is with
 const int   ON_TICKS    = 2;             // consecutive 100 ms ticks to trigger
 const int   OFF_TICKS   = 5;             // consecutive misses to clear
 const float NOISE_MULT  = 3.0f;          // alert amplitude is never below this x the board's own noise (measured at start-up)
+// Several axes at once: while an alert is on, another axis is reported as shaking too when it passes ALL the
+// same tests on its own AND its amplitude is at least this share of the alerting axis. The share keeps
+// cross-talk from a tilted board (a pure "no-no" leaking ~25 % into pitch at 15 degrees) from counting.
+// This only adds the 'axes' output; it does not change when an alert starts or stops.
+const float CO_AXIS_MIN_FRAC = 0.30f;
 int sensLevel = 2;
 float noiseFloor[3] = { 0, 0, 0 };       // dps, measured during calibration
 
@@ -226,6 +235,9 @@ float gyroBias[3] = { 0, 0, 0 };
 bool tremor = false;
 int dirAxis = 0;
 int onCount = 0, offCount = 0;
+bool axActive[3] = { false, false, false };   // per-axis shaking state (same on/off tick counts as the alert)
+int axOn[3] = { 0, 0, 0 }, axOff[3] = { 0, 0, 0 };
+float lineAMax = 0, lineAMin = 99;             // |a| extremes since the last output line
 
 uint32_t nextUs = 0, bootMs = 0;
 uint32_t lastAnalysis = 0, lastStream = 0;
@@ -554,11 +566,12 @@ void runAnalysis(uint32_t nowMs) {
 
   int best = -1;
   float bestAmp = 0;
+  bool ok[3];
   for (int i = 0; i < 3; i++) {
     float ampThr = fmaxf(ampBase, NOISE_MULT * noiseFloor[i]);
-    bool ok = settled && axs[i].amp >= ampThr && axs[i].q >= qThr && axs[i].steady >= stThr &&
-              axs[i].repeats && !stepHarmonic(axs[i].freq, i);
-    if (ok && axs[i].amp > bestAmp) { best = i; bestAmp = axs[i].amp; }
+    ok[i] = settled && axs[i].amp >= ampThr && axs[i].q >= qThr && axs[i].steady >= stThr &&
+            axs[i].repeats && !stepHarmonic(axs[i].freq, i);
+    if (ok[i] && axs[i].amp > bestAmp) { best = i; bestAmp = axs[i].amp; }
   }
 
   if (best >= 0) { onCount++; offCount = 0; dirAxis = best; }
@@ -566,6 +579,21 @@ void runAnalysis(uint32_t nowMs) {
 
   if (!tremor && onCount >= ON_TICKS)  tremor = true;
   if (tremor && offCount >= OFF_TICKS) tremor = false;
+
+  // which axes are shaking (reporting only, see CO_AXIS_MIN_FRAC)
+  for (int i = 0; i < 3; i++) {
+    bool co = ok[i] && best >= 0 && axs[i].amp >= CO_AXIS_MIN_FRAC * bestAmp;
+    if (co) { axOn[i]++; axOff[i] = 0; } else { axOff[i]++; axOn[i] = 0; }
+    if (!axActive[i] && axOn[i] >= ON_TICKS) axActive[i] = true;
+    if (axActive[i] && axOff[i] >= OFF_TICKS) axActive[i] = false;
+  }
+}
+
+int axesMask() {
+  if (!tremor) return 0;
+  int m = 1 << dirAxis;                              // the alerting axis is always included
+  for (int i = 0; i < 3; i++) if (axActive[i]) m |= 1 << i;
+  return m;
 }
 
 // ----------------------------- Heart rate and SpO2 (MAX30102) -----
@@ -736,7 +764,7 @@ void sendFrame() {
   for (int i = 1; i < 3; i++) if (axs[i].amp > axs[dom].amp) dom = i;
   int d = tremor ? dirAxis : dom;
 
-  Serial.printf("$,%.1f,%.1f,%.1f,%.2f,%.2f,%.2f,%d,%d,%.1f,%.1f,%.1f,%.1f,%.2f,%d,%.2f,%d,%d,%d,%d,%.1f\n",
+  Serial.printf("$,%.1f,%.1f,%.1f,%.2f,%.2f,%.2f,%d,%d,%.1f,%.1f,%.1f,%.1f,%.2f,%d,%.2f,%d,%d,%d,%d,%.1f,%d,%.2f,%.2f\n",
                 angP, angR, yawDeg,
                 axs[0].filt, axs[1].filt, axs[2].filt,
                 tremor ? 1 : 0, d,
@@ -748,7 +776,9 @@ void sendFrame() {
                 walking ? 1 : 0, walking ? stepHz : 0.0f,
                 ready ? axs[d].cycles : 0,
                 (ppgState == 3) ? (int)lroundf(bpmVal) : 0, (ppgState == 3) ? (int)lroundf(spo2Val) : 0,
-                ppgState, pulseOut);
+                ppgState, pulseOut,
+                axesMask(), lineAMax, lineAMin > 50 ? 0.0f : lineAMin);
+  lineAMax = 0; lineAMin = 99;
 }
 
 // ----------------------------- Setup ------------------------------
@@ -807,6 +837,8 @@ void loop() {
     float accP = atan2f(a[1], a[2]) * RAD2DEG;
     float accR = atan2f(-a[0], sqrtf(a[1] * a[1] + a[2] * a[2])) * RAD2DEG;
     float mag  = sqrtf(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]);
+    if (mag > lineAMax) lineAMax = mag;
+    if (mag < lineAMin) lineAMin = mag;
     float corr = (fabsf(mag - 1.0f) < 0.25f) ? (1.0f - ALPHA) : 0.0f;   // trust accel only when ~1 g
     angP = (angP + (g[0] - gyroBias[0]) * DT) * (1.0f - corr) + accP * corr;
     angR = (angR + (g[1] - gyroBias[1]) * DT) * (1.0f - corr) + accR * corr;

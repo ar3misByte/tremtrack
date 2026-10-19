@@ -80,6 +80,10 @@ function aggregate(results) {
       maxAccServedG: Math.max(...rs.map((r) => r.maxAccServedG)),
       maxAccDemandG: Math.max(...rs.map((r) => r.maxAccDemandG)),
       bpmMean: mean(rs.map((r) => r.bpmMean)),
+      maskExact: mean(rs.map((r) => r.maskExact ?? null)),
+      comboBoth: mean(rs.map((r) => r.comboBoth ?? null)),
+      singleExtra: mean(rs.map((r) => r.singleExtra ?? null)),
+      aMaxReportedG: Math.max(...rs.map((r) => r.aMaxReportedG ?? 0)),
     };
   }
   return agg;
@@ -106,11 +110,11 @@ const f2 = (x) => (x === null || x === undefined ? '–' : x.toFixed(2));
 
 function table(base, cur, sens) {
   const rows = Object.values(cur).filter((r) => r.sens === sens);
-  let md = `| Scenario | False-alert time | False episodes / run | Recall (min) | Axis correct | Latency s | Freq err Hz | Walking detected | Acc served / demanded g |\n|---|---|---|---|---|---|---|---|---|\n`;
+  let md = `| Scenario | False-alert time | False episodes / run | Recall (min) | Axis correct | Latency s | Freq err Hz | Walking detected | Axes reported exactly | Acc reported / demanded g |\n|---|---|---|---|---|---|---|---|---|---|\n`;
   for (const r of rows) {
     const b = base?.[`${r.scenario}@${r.sens}`];
     const d = (cv, bv, fmt) => (b && fmt(bv) !== fmt(cv) ? `${fmt(cv)} (was ${fmt(bv)})` : fmt(cv));
-    md += `| ${r.scenario} | ${d(r.falseAlertFrac, b?.falseAlertFrac, pct)} | ${d(r.falseEpisodesPerRun, b?.falseEpisodesPerRun, f2)} | ${r.recall === null ? '–' : `${pct(r.recall)} (${pct(r.minRecall)})`} | ${pct(r.axisCorrect)} | ${d(r.latencyS, b?.latencyS, f2)} | ${f2(r.freqErrHz)} | ${pct(r.walkDetectedFrac)} | ${f2(r.maxAccServedG)} / ${f2(r.maxAccDemandG)} |\n`;
+    md += `| ${r.scenario} | ${d(r.falseAlertFrac, b?.falseAlertFrac, pct)} | ${d(r.falseEpisodesPerRun, b?.falseEpisodesPerRun, f2)} | ${r.recall === null ? '–' : `${pct(r.recall)} (${pct(r.minRecall)})`} | ${pct(r.axisCorrect)} | ${d(r.latencyS, b?.latencyS, f2)} | ${f2(r.freqErrHz)} | ${pct(r.walkDetectedFrac)} | ${pct(r.maskExact)} | ${r.aMaxReportedG ? f2(r.aMaxReportedG) : f2(r.maxAccServedG)} / ${f2(r.maxAccDemandG)} |\n`;
   }
   return md;
 }

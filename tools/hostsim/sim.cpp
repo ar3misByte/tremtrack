@@ -51,7 +51,7 @@ double taper(double t, double t0, double t1, double ramp) {   // cosine on/off e
   return 0.5 - 0.5 * cos(M_PI * e);
 }
 
-struct Tremor { int axis; double f, A, t0, t1; };     // A = peak angular rate (dps); times relative to scenario start
+struct Tremor { int axis; double f, A, t0, t1; double ph = 0; };   // ph = phase offset (rad), for combined tremors     // A = peak angular rate (dps); times relative to scenario start
 struct Step { double ts, dur; int axis; double delta; };
 struct Burst { double tc, f, A, cycles; int axis; };
 struct Sine { double f, a, ph; };
@@ -64,6 +64,8 @@ struct Scenario {
   bool walk = false; double stepHz = 1.8, walkT0 = 0, walkT1 = 1e9;
   std::vector<Tremor> tremors;
   bool fall = false; double fallT = 0;
+  bool coherent = false;           // all tremors share one frequency wobble / amplitude modulation (one oscillator, several axes)
+  double crossTalk = 0;            // yaw rate leaking into the pitch gyro (board tilted on the head: sin(tilt))
   double fingerOff0 = -1, fingerOff1 = -1;   // finger removed in this window
   bool ppg = true;
   double bpm = 72;
@@ -163,9 +165,10 @@ struct Motion {
       const Tremor &tr = sc.tremors[i];
       double env = taper(t, tr.t0, tr.t1, 0.5);
       if (env <= 0) continue;
+      size_t wi = sc.coherent ? 0 : i;
       double wob = 0.03 * tr.f / (2 * M_PI * 0.2);
-      double ph = 2 * M_PI * (tr.f * t - wob * cos(2 * M_PI * 0.2 * t + trPh[i])) / 1.0;
-      double am = 1 + 0.15 * sin(2 * M_PI * 0.7 * t + trPh[i + 1]);
+      double ph = 2 * M_PI * (tr.f * t - wob * cos(2 * M_PI * 0.2 * t + trPh[wi])) + tr.ph;
+      double am = 1 + 0.15 * sin(2 * M_PI * 0.7 * t + trPh[wi + 1]);
       ang[tr.axis] += env * am * tr.A / (2 * M_PI * tr.f) * sin(ph);
     }
     if (sc.fall) {
@@ -182,6 +185,12 @@ struct Motion {
     double t = ta - WARM;
     for (auto &tr : sc.tremors) if (t >= tr.t0 && t < tr.t1) return tr.axis;
     return -1;
+  }
+  int truthMask(double ta) const {                          // bit mask of axes with an active simulated tremor
+    double t = ta - WARM;
+    int m = 0;
+    for (auto &tr : sc.tremors) if (t >= tr.t0 && t < tr.t1) m |= 1 << tr.axis;
+    return m;
   }
   bool nearTremor(double ta, double after) const {          // inside a tremor window or just after it
     double t = ta - WARM;
@@ -226,7 +235,10 @@ struct Mpu6050 : I2CDevice {
       M.angles(t + h, a1, v1, g1);
       M.angles(t, ac, vc, gc);
       double gyro[3], acc[3];
-      for (int k = 0; k < 3; k++) gyro[k] = (a1[k] - a0[k]) / (2 * h) + bias[k] + 0.05 * nd(rng);
+      double rate[3];
+      for (int k = 0; k < 3; k++) rate[k] = (a1[k] - a0[k]) / (2 * h);
+      rate[0] += M.sc.crossTalk * rate[2];
+      for (int k = 0; k < 3; k++) gyro[k] = rate[k] + bias[k] + 0.05 * nd(rng);
       double p = ac[0] * D2R, r = ac[1] * D2R;
       double gv[3] = { -sin(r), sin(p) * cos(r), cos(p) * cos(r) };
       for (int k = 0; k < 3; k++) acc[k] = gv[k] * (gc + vc) + 0.003 * nd(rng);
@@ -289,6 +301,11 @@ std::vector<Scenario> scenarios() {
   { Scenario s; s.name = "tremor_no_with_turns"; s.desc = "'No-no' 5.5 Hz 10 dps during looking around and head turns"; s.dur = 70; s.voluntary = s.turns = true; s.tremors = { { 2, 5.5, 10, 15, 55 } }; add(s); }
   { Scenario s; s.name = "tremor_walk_nonharmonic"; s.desc = "Walking 1.8 steps/s with 'no-no' 5.0 Hz 12 dps (not a step harmonic)"; s.dur = 60; s.walk = true; s.stepHz = 1.8; s.tremors = { { 2, 5.0, 12, 15, 45 } }; add(s); }
   { Scenario s; s.name = "tremor_walk_harmonic"; s.desc = "Walking 2.0 steps/s with 'yes-yes' 6.0 Hz 12 dps (3x step rate: known limit)"; s.dur = 60; s.walk = true; s.stepHz = 2.0; s.tremors = { { 0, 6.0, 12, 15, 45 } }; add(s); }
+  { Scenario s; s.name = "combo_yes_no_diag"; s.desc = "Yes-yes + no-no together, 5 Hz, in step (diagonal), 10 dps each"; s.dur = 50; s.coherent = true; s.tremors = { { 0, 5.0, 10, 10, 40 }, { 2, 5.0, 10, 10, 40 } }; add(s); }
+  { Scenario s; s.name = "combo_yes_no_circ"; s.desc = "Yes-yes + no-no together, 5 Hz, quarter cycle apart (circular), 10 dps each"; s.dur = 50; s.coherent = true; s.tremors = { { 0, 5.0, 10, 10, 40 }, { 2, 5.0, 10, 10, 40, M_PI / 2 } }; add(s); }
+  { Scenario s; s.name = "combo_two_freq"; s.desc = "Two independent tremors: yes-yes 4.4 Hz 8 dps + no-no 5.6 Hz 10 dps"; s.dur = 50; s.tremors = { { 0, 4.4, 8, 10, 40 }, { 2, 5.6, 10, 10, 40 } }; add(s); }
+  { Scenario s; s.name = "combo_partial"; s.desc = "No-no 5 Hz 12 dps for 30 s; yes-yes joins for the middle 10 s"; s.dur = 50; s.coherent = true; s.tremors = { { 2, 5.0, 12, 10, 40 }, { 0, 5.0, 9, 20, 30 } }; add(s); }
+  { Scenario s; s.name = "crosstalk_no_15deg"; s.desc = "Pure no-no 5 Hz 12 dps, board tilted 15 deg (26 % leaks into pitch): must stay single-axis"; s.dur = 50; s.crossTalk = 0.26; s.tremors = { { 2, 5.0, 12, 10, 40 } }; add(s); }
   { Scenario s; s.name = "fall"; s.desc = "Still, free fall 0.35 s, ~9 g impact, lying still"; s.dur = 30; s.fall = true; s.fallT = 10; add(s); }
   { Scenario s; s.name = "showcase"; s.desc = "Demo recording: still, no-no tremor, walking, yes-yes tremor, finger off (120 s)"; s.dur = 120;
     s.walk = true; s.stepHz = 1.9; s.walkT0 = 36; s.walkT1 = 56;
@@ -378,6 +395,8 @@ int main(int argc, char **argv) {
   // fields (0-based after '$'): 6 tremor, 7 dir, 11 freq, 13 walking, 16 bpm, 17 spo2, 18 ppgState
   const double MEASURE_FROM = WARM + 1.0, ONSET_GRACE = 2.5, OFF_GRACE = 2.5;
   long nNeg = 0, nNegAlert = 0, nPos = 0, nPosHit = 0, nPosAxis = 0, falseEp = 0, nWalkFrames = 0, nWalk = 0;
+  long nMask = 0, nMaskExact = 0, nCombo = 0, nComboBoth = 0, nSingle = 0, nSingleExtra = 0;
+  double aMaxReported = 0;
   double freqErrSum = 0; long freqN = 0;
   double latency = -1;
   int prev = 0;
@@ -404,14 +423,28 @@ int main(int argc, char **argv) {
           nPos++;
           if (tr) {
             nPosHit++;
-            if (dir == truth) nPosAxis++;
-            for (auto &trm : sc.tremors) if (rel >= trm.t0 && rel < trm.t1) { freqErrSum += fabs(fr.f[11] - trm.f); freqN++; }
+            int tm = M.truthMask(t);
+            if ((tm >> dir) & 1) nPosAxis++;
+            for (auto &trm : sc.tremors) if (rel >= trm.t0 && rel < trm.t1 && trm.axis == dir) { freqErrSum += fabs(fr.f[11] - trm.f); freqN++; }
+            if (fr.f.size() > 20) {
+              int mk = (int)fr.f[20];
+              // judge the mask only once each axis has been on for the onset grace
+              int settledMask = 0;
+              for (auto &trm : sc.tremors) if (rel >= trm.t0 + ONSET_GRACE && rel < trm.t1) settledMask |= 1 << trm.axis;
+              if (settledMask == tm) {
+                nMask++;
+                if (mk == tm) nMaskExact++;
+                if (__builtin_popcount(tm) >= 2) { nCombo++; if ((mk & tm) == tm) nComboBoth++; }
+                else { nSingle++; if (__builtin_popcount(mk) > 1) nSingleExtra++; }
+              }
+            }
           }
         }
       }
       if (sc.walk && fr.f.size() > 13) { nWalkFrames++; if (fr.f[13] > 0) nWalk++; }
     }
     prev = tr;
+    if (fr.f.size() > 21) aMaxReported = std::max(aMaxReported, fr.f[21]);
     if (fr.f.size() > 18 && fr.f[18] == 3) {
       if (firstValidPpg < 0) firstValidPpg = t;
       if (t > WARM + 10 && M.finger(t)) { bpmSum += fr.f[16]; bpmN++; }
@@ -420,7 +453,8 @@ int main(int argc, char **argv) {
   printf("{\"scenario\":\"%s\",\"seed\":%u,\"sens\":%d,\"frames\":%zu,"
          "\"falseAlertFrac\":%.4f,\"falseEpisodes\":%ld,\"recall\":%s,\"axisCorrect\":%s,\"latencyS\":%s,"
          "\"freqErrHz\":%s,\"walkDetectedFrac\":%s,\"accSaturated\":%ld,\"gyroSaturated\":%ld,"
-         "\"maxAccDemandG\":%.2f,\"maxAccServedG\":%.2f,\"ppgFirstValidS\":%s,\"bpmMean\":%s}\n",
+         "\"maxAccDemandG\":%.2f,\"maxAccServedG\":%.2f,\"ppgFirstValidS\":%s,\"bpmMean\":%s,"
+         "\"maskExact\":%s,\"comboBoth\":%s,\"singleExtra\":%s,\"aMaxReportedG\":%.2f}\n",
          sc.name.c_str(), seed, sens, frames.size(),
          nNeg ? (double)nNegAlert / nNeg : 0.0, falseEp,
          nPos ? std::to_string((double)nPosHit / nPos).c_str() : "null",
@@ -430,6 +464,10 @@ int main(int argc, char **argv) {
          nWalkFrames ? std::to_string((double)nWalk / nWalkFrames).c_str() : "null",
          mpu.satAcc, mpu.satGyr, mpu.maxAccDemand, mpu.maxAccServed,
          firstValidPpg >= 0 ? std::to_string(firstValidPpg - WARM).c_str() : "null",
-         bpmN ? std::to_string(bpmSum / bpmN).c_str() : "null");
+         bpmN ? std::to_string(bpmSum / bpmN).c_str() : "null",
+         nMask ? std::to_string((double)nMaskExact / nMask).c_str() : "null",
+         nCombo ? std::to_string((double)nComboBoth / nCombo).c_str() : "null",
+         nSingle ? std::to_string((double)nSingleExtra / nSingle).c_str() : "null",
+         aMaxReported);
   return 0;
 }
