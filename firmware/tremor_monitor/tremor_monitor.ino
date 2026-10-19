@@ -78,7 +78,7 @@ const float FS = 100.0f;                 // sample rate (Hz)
 const uint32_t SAMPLE_US = 10000;        // 1e6 / FS
 const float DT = 1.0f / FS;
 const float GYRO_LSB_PER_DPS = 65.5f;    // +/-500 dps
-const float ACC_LSB_PER_G    = 16384.0f; // +/-2 g
+const float ACC_LSB_PER_G    = 4096.0f;  // +/-8 g (was +/-2 g, which saturated in impacts)
 const float RAD2DEG = 57.2957795f;
 const float HP_FC = 2.5f;                // tremor high-pass (Hz)
 const float LP_FC = 10.0f;               // tremor low-pass (Hz)
@@ -803,7 +803,7 @@ void setup() {
   delay(100);
   writeReg(0x1A, 0x04);        // hardware low-pass ~20 Hz
   writeReg(0x1B, 0x08);        // gyro +/-500 dps
-  writeReg(0x1C, 0x00);        // accel +/-2 g
+  writeReg(0x1C, 0x10);        // accel +/-8 g (fall / impact detection needs the headroom)
   Serial.printf("# MPU6050 OK (WHO_AM_I = 0x%02X)\n", readReg(0x75));
 
   setSensitivity(sensLevel);

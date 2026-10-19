@@ -38,4 +38,11 @@ tools/hostsim/bin/sim_current --scenario fall --csv out.csv   # dump the stream
 
 **Caveats.** These are synthetic signals I designed: clean sinusoidal tremor, and a talking model based on my own estimate (about 1.5 °/s RMS in band at "moderate"). They show the code behaves as designed and catch regressions. They are **not** evidence of accuracy on real heads; real tremor is less regular and real noise is messier.
 
+## Firmware changes checked with this tool
+
+| Change | Result (5 seeds, sensitivity 1–5, all scenarios) |
+|---|---|
+| `axes`, `aMax`, `aMin` output fields | Alert on/off, axis, latency, frequency and walking metrics **identical** to the baseline (zero differences). Combined tremor (diagonal, circular, two frequencies): both axes reported in 100 % of settled alert frames. Pure "no-no" with a 15° board tilt (26 % cross-talk): never reported as combined. When a second axis stops, its report clears after about 0.5 s. |
+| Accelerometer ±2 g → ±8 g (`0x1C = 0x10`, 4096 LSB/g) | Alert metrics and walking detection (98 %) **identical**. Orientation after the fall identical (pitch −0.2° → 85.1°). Fall impact now reported at **8.04 g** instead of saturating at **2.15 g** (9 g simulated; a 40 ms peak falls between 100 Hz samples). Resolution is 0.24 mg per count, far below the walking detector's 35 mg activity floor. |
+
 The detector thresholds have not been changed. Any change will be proposed with before/after numbers from this tool.
