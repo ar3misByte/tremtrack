@@ -5,5 +5,8 @@ import '@fontsource/jetbrains-mono/400.css';
 import './theme/tokens.css';
 import './theme/global.css';
 import App from './App';
+import { recorder } from './data/recorder';
+
+recorder.start();
 
 createRoot(document.getElementById('root')!).render(<StrictMode><App /></StrictMode>);

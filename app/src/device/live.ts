@@ -5,7 +5,12 @@ import { parseLine, type Frame } from '../logic/csv';
 import { applyMapping, Exaggerator, relativeTo, type Euler3 } from '../logic/orientation';
 import { DEFAULT_CONTROLS, type DemoControls } from '../logic/demoGen';
 import { useSettings } from '../state/settings';
-import { DemoSource, SerialSource, WebSocketSource, BleSource, type ConnState, type DeviceSource, type SourceKind } from './sources';
+import { DemoSource, SerialSource, WebSocketSource, BleSource, ReplaySource, type ConnState, type DeviceSource, type SourceKind } from './sources';
+import type { Recording } from '../logic/recording';
+
+/** Hooks for the recorder: every parsed frame (with arrival time, ms epoch) and every connection change. */
+export type FrameHook = (f: Frame, t: number) => void;
+export type ConnHook = (kind: SourceKind | null, state: ConnState) => void;
 
 export const RING = 250;                       // 5 s at 50 Hz
 const STALE_MS = 1500;
@@ -23,6 +28,9 @@ export interface LiveSnapshot {
   invalidCount: number;
   demoLabel: string;
   canSend: boolean;
+  recordingRaw: boolean;
+  rawLines: number;
+  replayLabel: string;
 }
 
 class Live {
@@ -49,6 +57,10 @@ class Live {
   private demoLabel = '';
   demo = { scripted: true, manual: { ...DEFAULT_CONTROLS } as DemoControls };
 
+  private frameHooks = new Set<FrameHook>();
+  private connHooks = new Set<ConnHook>();
+  private raw: Recording | null = null;
+  private replayLabel = '';
   private listeners = new Set<() => void>();
   private snap: LiveSnapshot = this.makeSnap();
 
@@ -58,6 +70,7 @@ class Live {
 
   // ----- data in -----
   handleLine = (line: string) => {
+    if (this.raw && this.raw.entries.length < 200_000) this.raw.entries.push([Date.now() - this.raw.start, line]);
     const p = parseLine(line);
     if (!p) return;
     if (p.kind === 'status') { this.lastStatus = p.text; this.lastRaw = line; return; }
@@ -75,7 +88,17 @@ class Live {
     const raw = applyMapping({ pitch: f.pitch, roll: f.roll, yaw: f.yaw }, s.mapping);
     if (this.needZero) { this.zero = { pitch: 0, roll: 0, yaw: raw.yaw }; this.needZero = false; this.ex.reset(); }
     this.disp = this.ex.step(relativeTo(raw, this.zero), s.exaggeration);
+    const now = Date.now();
+    this.frameHooks.forEach((h) => h(f, now));
   };
+
+  onFrame(h: FrameHook) { this.frameHooks.add(h); return () => { this.frameHooks.delete(h); }; }
+  onConn(h: ConnHook) { this.connHooks.add(h); return () => { this.connHooks.delete(h); }; }
+  get sourceKind(): SourceKind | null { return this.source?.kind ?? null; }
+
+  // ----- raw stream recording (for replay) -----
+  startRawRecording() { this.raw = { start: Date.now(), source: this.source?.kind ?? 'unknown', entries: [] }; this.emit(); }
+  stopRawRecording(): Recording | null { const r = this.raw; this.raw = null; this.emit(); return r && r.entries.length ? r : null; }
 
   /** Recenter: the current pose becomes "straight ahead" (zeroes yaw and the tilt offsets). */
   recenter() {
@@ -86,21 +109,23 @@ class Live {
   }
 
   // ----- connections -----
-  async connect(kind: SourceKind) {
+  async connect(kind: SourceKind, replay?: { rec: Recording; label: string }) {
     await this.disconnect();
     const s = useSettings.getState();
     const src: DeviceSource =
       kind === 'serial' ? new SerialSource()
       : kind === 'websocket' ? new WebSocketSource(s.wsUrl)
       : kind === 'ble' ? new BleSource()
+      : kind === 'replay' ? new ReplaySource(replay!.rec, replay!.label)
       : new DemoSource(() => this.demo, (l) => { this.demoLabel = l; });
     this.source = src;
     this.needZero = true;
     this.demoLabel = '';
+    this.replayLabel = kind === 'replay' ? replay?.label ?? '' : '';
     try {
       await src.start({
         line: this.handleLine,
-        state: (st, msg) => { if (this.source === src) { this.conn = st; if (msg !== undefined) this.message = msg; this.emit(); } },
+        state: (st, msg) => { if (this.source === src) { this.conn = st; if (msg !== undefined) this.message = msg; this.connHooks.forEach((h) => h(src.kind, st)); this.emit(); } },
       });
       if (src.send && kind !== 'demo') void this.sendSensitivity(s.sensitivity, true);
     } catch (e) {
@@ -119,6 +144,7 @@ class Live {
     this.conn = 'idle';
     this.message = '';
     this.lastRx = 0;
+    this.connHooks.forEach((h) => h(src?.kind ?? null, 'idle'));
     this.emit();
   }
 
@@ -154,6 +180,7 @@ class Live {
       frame: this.frame, tremorActive: fresh && !!this.frame?.tremor, lastStatus: this.lastStatus,
       lastRaw: this.lastRaw, invalidCount: this.invalid, demoLabel: this.demoLabel,
       canSend: !!this.source?.send && this.conn === 'open',
+      recordingRaw: !!this.raw, rawLines: this.raw?.entries.length ?? 0, replayLabel: this.replayLabel,
     };
   }
 }

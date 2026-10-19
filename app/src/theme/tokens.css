@@ -31,10 +31,17 @@
   --warn-soft: #f7ecd6;
   --heart: #c4475a;
 
+  /* charts (validated with the dataviz palette checker: axis trio passes lightness, chroma, CVD, contrast) */
+  --chart-bar: #b9aea2;      /* single-series magnitude bars: warm neutral */
+  --chart-bar-hi: #8c7f72;
+  --chart-line: #1d1f22;     /* reference line (7-day average) */
+  --chart-grid: #ece9e4;
+  --chart-nodata: #f1efeb;
+
   /* the three motion axes (charts, bars, 3D axis rings) */
-  --axis-pitch: #3f7d8c;     /* nod, "yes-yes" */
-  --axis-roll: #a7843c;      /* tilt */
-  --axis-yaw: #6a6fb0;       /* turn, "no-no" */
+  --axis-pitch: #00839e;     /* nod, "yes-yes" */
+  --axis-roll: #b88227;      /* tilt */
+  --axis-yaw: #6266c4;       /* turn, "no-no" */
 
   /* head model */
   --skin: #d9ab8c;

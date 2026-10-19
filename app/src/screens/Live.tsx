@@ -5,12 +5,16 @@ import { useSettings } from '../state/settings';
 import Circle2D from '../components/Circle2D';
 import { PulseTrace, Waveform } from '../components/Traces';
 import { IconCircle, IconCube, IconRecenter } from '../components/icons';
+import { useRecorder } from '../data/recorder';
+import { download } from '../data/csvExport';
+import { formatRecording, gzipText } from '../logic/recording';
+import { scoreBand } from '../logic/severity';
+import { fmtDuration, fmtMinutes, fmtScore } from '../logic/labels';
 
 const Head3D = lazy(() => import('../components/Head3D'));
 
-export const AXIS_LONG = ['Nodding ("yes-yes")', 'Tilting side to side', 'Turning ("no-no")'] as const;
-export const AXIS_SHORT = ['Nod', 'Tilt', 'Turn'] as const;
-const AXIS_VAR = ['--axis-pitch', '--axis-roll', '--axis-yaw'];
+import { AXIS_LONG, AXIS_SHORT, AXIS_VAR } from '../logic/labels';
+export { AXIS_LONG, AXIS_SHORT };
 
 function headline(s: LiveSnapshot): { title: string; sub: string; tone: 'alert' | 'ok' | 'quiet' } {
   const f = s.frame;
@@ -93,6 +97,7 @@ export default function Live({ onConnect }: { onConnect: () => void }) {
             <div className="value">{f ? (f.walking ? f.stepHz.toFixed(1) : f.tremor && f.cycles > 0 ? f.cycles : '–') : '–'}<small>{f?.walking ? '/s' : ''}</small></div>
           </div>
         </div>
+        <TodayCard />
       </div>
 
       <div className="col">
@@ -103,7 +108,9 @@ export default function Live({ onConnect }: { onConnect: () => void }) {
           <Waveform />
         </section>
         {s.source === 'demo' && <DemoCard label={s.demoLabel} />}
+        {s.source === 'replay' && <p className="notice">Replaying: {s.replayLabel}. Recorded data, not live.</p>}
         <DisplayCard canSend={s.canSend} />
+        <RecordCard s={s} />
         <HowComputed />
       </div>
     </div>
@@ -249,6 +256,47 @@ function HowComputed() {
           <p>This is a prototype for demonstration. It does not diagnose anything and has not been clinically validated.</p>
         </div>
       </details>
+    </section>
+  );
+}
+
+function TodayCard() {
+  const r = useRecorder();
+  const t = r.today;
+  return (
+    <section className="card" aria-label="Today so far">
+      <div className="card-title"><span>Today so far</span><a className="fine" href="#/trends">Trends</a></div>
+      <div className="grid-3">
+        <div><div className="fine">Severity</div><div className="stat">{fmtScore(t?.score ?? null)}<span className="fine"> / 10</span></div><div className="fine">{scoreBand(t?.score ?? null)}</div></div>
+        <div><div className="fine">Episodes</div><div className="stat">{t?.episodes ?? 0}</div><div className="fine">{fmtMinutes(t?.tremorS ?? 0)} shaking</div></div>
+        <div><div className="fine">{r.current ? 'This episode' : 'This session'}</div><div className="stat">{r.current ? fmtDuration(r.current.durationS) : r.recording ? fmtMinutes(r.sessionMonitoredS) : '–'}</div><div className="fine">{r.current ? `score ${fmtScore(r.current.score)} so far` : r.recording ? `${r.sessionEpisodes} episode${r.sessionEpisodes === 1 ? '' : 's'}` : 'not recording'}</div></div>
+      </div>
+      {r.storageError && <p className="notice warn" role="alert" style={{ marginTop: 'var(--s-3)' }}>{r.storageError}</p>}
+      <p className="fine" style={{ marginTop: 'var(--s-3)' }}>Every connection is saved on this device as a session. Tremor alerts longer than 1 s are saved as episodes.</p>
+    </section>
+  );
+}
+
+function RecordCard({ s }: { s: LiveSnapshot }) {
+  const [busy, setBusy] = useState(false);
+  const stop = async () => {
+    const rec = live.stopRawRecording();
+    if (!rec) return;
+    setBusy(true);
+    try {
+      const name = `tremor-${new Date(rec.start).toISOString().replace(/[:.]/g, '-').slice(0, 19)}.rec.gz`;
+      download(name, await gzipText(formatRecording(rec)));
+    } finally { setBusy(false); }
+  };
+  return (
+    <section className="card flat" aria-label="Raw stream recording">
+      <div className="card-title"><span>Record the raw stream</span>{s.recordingRaw && <span className="chip"><span className="rec-dot" />{s.rawLines} lines</span>}</div>
+      <p className="fine">Saves the exact data from the device to a file you can replay later, for example as a backup for a live demo. Not needed for history, which is saved automatically.</p>
+      <div className="btn-row" style={{ marginTop: 'var(--s-3)' }}>
+        {s.recordingRaw
+          ? <button className="btn accent sm" onClick={stop} disabled={busy}>Stop and download</button>
+          : <button className="btn sm" onClick={() => live.startRawRecording()} disabled={!s.fresh}>Start recording</button>}
+      </div>
     </section>
   );
 }

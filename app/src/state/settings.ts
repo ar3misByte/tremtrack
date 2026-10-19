@@ -16,6 +16,7 @@ export interface Settings {
   wsUrl: string;
   sensitivity: number;        // 1..5, sent to the device
   largeText: boolean;
+  showDemoData: boolean;      // include demo / replay / sample data in Trends and today's score
   set: (p: Partial<Omit<Settings, 'set'>>) => void;
 }
 
@@ -36,6 +37,7 @@ export const useSettings = create<Settings>()(
       wsUrl: 'ws://localhost:8787',
       sensitivity: 2,
       largeText: false,
+      showDemoData: true,
       set: (p) => set(p),
     }),
     { name: 'htm.settings.v1', storage: safeStorage, partialize: ({ set: _s, ...rest }) => rest },

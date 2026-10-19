@@ -13,12 +13,14 @@
     "typecheck": "tsc -b --noEmit",
     "size": "node scripts/size-budget.mjs",
     "screenshots": "node scripts/screenshots.mjs",
-    "e2e:local": "node scripts/e2e-local.mjs"
+    "e2e:local": "node scripts/e2e-local.mjs",
+    "e2e:history": "node scripts/e2e-history.mjs"
   },
   "dependencies": {
     "@fontsource-variable/manrope": "^5.3.0",
     "@fontsource/jetbrains-mono": "^5.3.0",
     "@react-three/fiber": "^9.8.2",
+    "idb": "^7.1.1",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "three": "^0.186.1",
@@ -35,6 +37,7 @@
     "@vitejs/plugin-react": "^6.1.2",
     "eslint": "^10.13.0",
     "eslint-plugin-react-hooks": "^7.1.1",
+    "fake-indexeddb": "^6.2.6",
     "globals": "^17.13.0",
     "playwright": "^1.64.1",
     "typescript": "^6.0.3",

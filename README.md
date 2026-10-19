@@ -9,8 +9,8 @@ A prototype that tracks head tremor from a head-worn ESP32 + MPU6050, with heart
 | Milestone | State |
 |---|---|
 | 1. Skeleton, protocol parser, simulators, live 3D view (USB / WebSocket / demo) | **done** |
-| 2. Local data (IndexedDB), episodes, severity score, history, demo replay | next |
-| 3. Posture and stillness, fall detection (firmware ±8 g), resting vitals | |
+| 2. Local data (IndexedDB), episodes, severity score, history, demo replay | **done** |
+| 3. Posture and stillness, fall detection (firmware ±8 g), resting vitals | next |
 | 4. Medication, tags, correlations, type hints | |
 | 5. Doctor report PDF | |
 | 6. AWS stack, provisioning, simulator to cloud, `docs/AWS_SETUP.md` | |
@@ -27,15 +27,16 @@ npm install
 npm run dev                  # app on http://localhost:5173
 ```
 
-1. Open http://localhost:5173, tap the connection pill (top right) and choose **Demo mode**. The scripted 2-minute showcase plays: still, a "no-no" tremor, walking, a "yes-yes" tremor, finger off the pulse sensor.
-2. To stream like a real device over WebSocket, run in a second terminal:
+1. Open http://localhost:5173, tap the connection pill (top right) and choose **Demo mode**. The scripted 2-minute showcase plays: still, a "no-no" tremor, walking, a "yes-yes" tremor, finger off the pulse sensor. Or choose **Replay a recording → Showcase**, which plays real firmware output recorded in the host simulator.
+2. Open **Trends**. Every connection is saved on the device as a session, and tremor alerts become scored episodes. For a fuller picture, use **Settings → Load 4 weeks of sample history** (clearly marked as sample data, removable).
+3. To stream like a real device over WebSocket, run in a second terminal:
    ```bash
    npm run sim -- --ws                                     # synthetic showcase on ws://localhost:8787
    npm run hostsim                                         # builds the real sketch for the host (first time)
    npm run sim -- --ws --hostsim tremor_no_4.5hz_6dps      # the real firmware's output
    ```
    In the app choose **Wi-Fi or simulator**.
-3. With the board on USB (desktop Chrome or Edge), flash `firmware/tremor_monitor` (see `firmware/README.md`), close the Serial Monitor, and choose **USB cable**.
+4. With the board on USB (desktop Chrome or Edge), flash `firmware/tremor_monitor` (see `firmware/README.md`), close the Serial Monitor, and choose **USB cable**.
 
 ## Checks
 
@@ -45,6 +46,7 @@ npm run lint && npm run typecheck
 npm run build && npm run size -w app      # bundle budget
 node tools/hostsim/run.mjs --check        # detector regression against the legacy baseline
 npm run e2e:local -w app                  # real firmware -> devsim -> app in a browser (needs npm run dev)
+npm run e2e:history -w app                # replay -> recorder -> IndexedDB -> Trends (needs npm run dev)
 npm run screenshots -w app                # docs/screenshots at phone and desktop width
 ```
 
@@ -53,6 +55,6 @@ npm run screenshots -w app                # docs/screenshots at phone and deskto
 ```
 firmware/   ESP32 sketch (Arduino IDE)          app/     React + Vite + three.js PWA
 tools/      hostsim (firmware on the host), devsim (stream simulator)
-docs/       ARCHITECTURE, TELEMETRY_PROTOCOL, DETECTOR_BASELINE, HEAD_MODEL, COSTS, PRIVACY, DATA_MODEL, AWS_SETUP
+docs/       ARCHITECTURE, TELEMETRY_PROTOCOL, SEVERITY, DATA_MODEL, DETECTOR_BASELINE, HEAD_MODEL, PRIVACY, COSTS, AWS_SETUP
 legacy/     the original sketch and page (read-only reference)
 ```

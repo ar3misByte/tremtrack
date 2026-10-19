@@ -57,6 +57,18 @@ $,12.3,-4.5,30.1,1.20,-0.50,8.75,1,2,0.4,0.3,9.8,5.5,0.82,0,0.00,7,74,97,3,-12.4
 |---|---|---|
 | `1`…`5` | tremor sensitivity (1 strict, 2 default, 5 very sensitive) | `# Sensitivity N` |
 
+## 1b. Recording file (.rec)
+
+A raw stream saved by the app (Live → Record the raw stream) or made by `tools/hostsim/make-recording.mjs`. Plain text, usually gzipped:
+
+```
+#REC v1 start=2026-10-20T08:00:00.000Z source=serial
+0	# Tremor Stream starting
+20	$,1.2,0.4,...
+```
+
+Each line is the offset in ms from `start`, a tab, then the protocol line exactly as received. Implemented in `app/src/logic/recording.ts`.
+
 ## 2. Planned local additions
 
 These are not implemented yet. Each will be appended to the data line and listed in the table above when it lands:

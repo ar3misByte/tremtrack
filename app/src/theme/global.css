@@ -167,3 +167,48 @@ details.disclosure .body { font-size: var(--fs-sm); color: var(--ink-2); padding
 .placeholder ul { margin: 0; padding-left: 1.1rem; color: var(--ink-2); font-size: var(--fs-sm); display: grid; gap: 4px; }
 code { font-family: var(--font-mono); font-size: 0.9em; background: var(--surface-sunk); padding: 1px 5px; border-radius: 6px; }
 @media (min-width: 960px) { .page.wide > .topbar.full { grid-column: 1 / -1; } }
+
+/* ---------- trends ---------- */
+.topline { display: flex; align-items: end; justify-content: space-between; gap: var(--s-3); flex-wrap: wrap; }
+@media (min-width: 960px) { .page.wide > .full { grid-column: 1 / -1; } }
+.hero-figure { font-size: 4rem; font-weight: var(--fw-light); letter-spacing: var(--tracking-display); line-height: 1; font-variant-numeric: proportional-nums; }
+.hero-figure small, .big-number small { font-size: var(--fs-lg); color: var(--ink-2); font-weight: var(--fw-regular); letter-spacing: 0; margin-left: var(--s-1); }
+.stat { font-size: var(--fs-lg); font-weight: var(--fw-medium); margin-top: 2px; }
+.stats { row-gap: var(--s-4); }
+
+.chart-legend { display: flex; gap: var(--s-4); flex-wrap: wrap; font-size: var(--fs-xs); color: var(--ink-2); margin-bottom: var(--s-2); }
+.chart-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.key-bar { width: 10px; height: 10px; border-radius: 3px; background: var(--chart-bar); display: inline-block; }
+.key-line { width: 16px; height: 2px; border-radius: 1px; background: var(--chart-line); display: inline-block; }
+.chart-wrap { position: relative; width: 100%; touch-action: pan-y; }
+.chart-wrap svg { display: block; overflow: visible; }
+.chart-wrap .tick { font-size: 11px; fill: var(--ink-2); font-variant-numeric: tabular-nums; }
+.chart-wrap .tick.faint { fill: var(--ink-3); }
+.chart-tip { position: absolute; top: 0; width: 180px; pointer-events: none; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-sm); box-shadow: var(--shadow-2); padding: var(--s-2) var(--s-3); font-size: var(--fs-xs); display: grid; gap: 2px; z-index: 2; }
+.chart-tip b { font-weight: var(--fw-bold); }
+
+.data-table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+.data-table th, .data-table td { text-align: left; padding: 8px 10px 8px 0; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.data-table thead th { font-size: var(--fs-xs); color: var(--ink-2); font-weight: var(--fw-medium); }
+.data-table tbody th { font-weight: var(--fw-medium); }
+
+.ep-list { list-style: none; margin: 0; padding: 0; display: grid; }
+.ep-row, .sess-row { width: 100%; display: grid; grid-template-columns: 4.6rem 1fr auto; align-items: center; gap: var(--s-3); padding: var(--s-3) 0; border: 0; border-bottom: 1px solid var(--line); background: none; text-align: left; cursor: pointer; }
+.sess-row { cursor: default; }
+.ep-list li:last-child .ep-row, .ep-list li.sess-row:last-child { border-bottom: 0; }
+.ep-row:hover { background: var(--surface-2); }
+.ep-when { display: grid; font-size: var(--fs-sm); }
+.ep-when span { font-size: var(--fs-xs); color: var(--ink-2); }
+.ep-mid { display: grid; font-size: var(--fs-sm); min-width: 0; }
+.ep-mid > span:first-child { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 10px; height: 10px; border-radius: 3px; display: inline-block; flex: none; }
+.score-pill { min-width: 2.8rem; text-align: center; padding: 4px 10px; border-radius: var(--r-pill); background: var(--surface-sunk); font-weight: var(--fw-medium); font-size: var(--fs-sm); }
+
+.share-bar { display: flex; gap: 2px; height: 8px; border-radius: 4px; overflow: hidden; margin: var(--s-4) 0; background: var(--surface-sunk); }
+.share-bar i { display: block; height: 100%; }
+.kv { display: grid; grid-template-columns: 1fr; margin: 0; }
+.kv div { display: flex; justify-content: space-between; gap: var(--s-3); padding: 8px 0; border-bottom: 1px solid var(--line); font-size: var(--fs-sm); }
+.kv dt { color: var(--ink-2); }
+.kv dd { margin: 0; text-align: right; font-weight: var(--fw-medium); }
+
+.rec-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); display: inline-block; }

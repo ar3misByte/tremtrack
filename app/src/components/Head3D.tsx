@@ -20,8 +20,8 @@ function readColors(): HeadColors {
   const v = (n: string, d: string) => cs.getPropertyValue(n).trim() || d;
   return {
     skin: v('--skin', '#d9ab8c'), hair: v('--hair', '#3a2b24'), headset: v('--headset', '#2b2e33'), pod: v('--headset-pod', '#f4f3f0'),
-    accent: v('--accent', '#d9602f'), ok: v('--ok', '#5f8b6b'), pitch: v('--axis-pitch', '#3f7d8c'), roll: v('--axis-roll', '#a7843c'),
-    yaw: v('--axis-yaw', '#6a6fb0'), clothing: v('--surface-sunk', '#ebe9e4'),
+    accent: v('--accent', '#d9602f'), ok: v('--ok', '#5f8b6b'), pitch: v('--axis-pitch', '#00839e'), roll: v('--axis-roll', '#b88227'),
+    yaw: v('--axis-yaw', '#6266c4'), clothing: v('--surface-sunk', '#ebe9e4'),
   };
 }
 

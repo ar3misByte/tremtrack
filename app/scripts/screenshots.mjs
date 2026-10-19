@@ -35,8 +35,30 @@ async function session(name, viewport, scale) {
   await shot('05-live-2d-tremor');
   await page.getByRole('button', { name: /3D/ }).click();
   await page.goto(base + '/#/trends');
-  await page.waitForTimeout(400);
-  await shot('06-trends-placeholder');
+  await page.waitForTimeout(500);
+  await shot('06-trends-after-demo');
+  await page.goto(base + '/#/settings');
+  await page.getByRole('button', { name: 'Load 4 weeks of sample history' }).click();
+  await page.waitForTimeout(800);
+  await page.goto(base + '/#/trends');
+  await page.waitForTimeout(1200);
+  await shot('07-trends');
+  await shot('07b-trends-full', true);
+  await page.locator('.chart-wrap').hover({ position: { x: 200, y: 90 } });
+  await page.waitForTimeout(200);
+  await page.locator('.chart-wrap').screenshot({ path: fileURLToPath(new URL(`${name}-08-chart-tooltip.png`, out)) });
+  await page.locator('.ep-row').first().click();
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: fileURLToPath(new URL(`${name}-09-episode-sheet.png`, out)) });
+  await page.keyboard.press('Escape');
+  await page.goto(base + '/#/settings');
+  await page.waitForTimeout(500);
+  await shot('10-settings', true);
+  await page.goto(base + '/#/live');
+  await page.waitForTimeout(800);
+  await page.evaluate(() => window.scrollTo(0, 900));
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: fileURLToPath(new URL(`${name}-11-live-today.png`, out)) });
   // horizontal overflow check
   for (const r of ['live', 'trends', 'settings', 'about']) {
     await page.goto(base + '/#/' + r);

@@ -9,11 +9,12 @@ import Live from './screens/Live';
 import Placeholder from './screens/Placeholder';
 import Settings from './screens/Settings';
 import About from './screens/About';
+import Trends from './screens/Trends';
 
 function ConnPill({ onClick }: { onClick: () => void }) {
   const s = useLive();
   const label = s.fresh
-    ? `${s.source === 'demo' ? 'Demo' : s.source === 'serial' ? 'USB' : s.source === 'websocket' ? 'Wi-Fi' : 'Live'} · ${s.rate}/s`
+    ? `${s.source === 'demo' ? 'Demo' : s.source === 'replay' ? 'Replay' : s.source === 'serial' ? 'USB' : s.source === 'websocket' ? 'Wi-Fi' : 'Live'} · ${s.rate}/s`
     : s.conn === 'connecting' ? 'Connecting…' : s.conn === 'open' ? 'Waiting…' : s.conn === 'error' ? 'Connection error' : 'Not connected';
   const dot = s.fresh ? 'live' : s.conn === 'connecting' || s.conn === 'open' ? 'wait pulse' : s.conn === 'error' ? 'err' : '';
   return (
@@ -57,7 +58,7 @@ export default function App() {
 
       <main>
         {route === 'live' && <Live onConnect={open} />}
-        {route === 'trends' && <Placeholder title="Trends" milestone={2} items={['Tremor severity score (0–10) per episode and per day, with the formula shown', 'Episode history: time, duration, axis, frequency', 'Posture and stillness, resting heart rate and SpO₂ trends (milestone 3)']} />}
+        {route === 'trends' && <Trends />}
         {route === 'log' && <Placeholder title="Log" milestone={4} items={['Quick tags: coffee, poor sleep, stress, exercise, alcohol, meal, custom', 'Medication schedule, reminders, taken / skipped / late', 'Adherence percentage']} />}
         {route === 'insights' && <Placeholder title="Insights" milestone={4} items={['Patterns in your tremor (axis, frequency, regularity), worded as things to mention to a doctor, never a diagnosis', 'Tremor after tags and doses compared with baseline, with sample counts and uncertainty', 'Heart rate around tremor episodes']} />}
         {route === 'report' && <Placeholder title="Doctor report" milestone={5} items={['Pick a date range, get a PDF', 'Severity trend, episode table, patterns with their evidence', 'Medication and trigger findings with sample counts, vitals trends, impact events', 'A plain-language disclaimer']} />}

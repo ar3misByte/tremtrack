@@ -1,8 +1,9 @@
 // Device transports. Each one delivers protocol lines (see logic/csv.ts) to a sink.
 import { LineSplitter } from '../logic/csv';
 import { DemoGenerator, scriptAt, type DemoControls } from '../logic/demoGen';
+import type { Recording } from '../logic/recording';
 
-export type SourceKind = 'serial' | 'websocket' | 'ble' | 'demo';
+export type SourceKind = 'serial' | 'websocket' | 'ble' | 'demo' | 'replay';
 export type ConnState = 'idle' | 'connecting' | 'open' | 'error';
 
 export interface SourceCallbacks {
@@ -142,4 +143,29 @@ export class DemoSource implements DeviceSource {
   async stop() { if (this.timer) clearInterval(this.timer); this.timer = null; }
 
   async send(text: string) { this.onLabel?.(`(demo) sensitivity ${text} would be sent to the device`); }
+}
+
+// ---------- Replay: plays a recorded stream (.rec) in real time, looping ----------
+export class ReplaySource implements DeviceSource {
+  readonly kind = 'replay' as const;
+  private timer: ReturnType<typeof setInterval> | null = null;
+  constructor(private readonly rec: Recording, readonly label: string, private readonly loop = true) {}
+
+  async start(cb: SourceCallbacks) {
+    const e = this.rec.entries;
+    const total = e[e.length - 1][0];
+    let i = 0;
+    let t0 = performance.now();
+    cb.state('open', `Replaying ${this.label} (${Math.round(total / 1000)} s${this.loop ? ', looping' : ''}).`);
+    this.timer = setInterval(() => {
+      const el = performance.now() - t0;
+      while (i < e.length && e[i][0] <= el) cb.line(e[i++][1]);
+      if (i >= e.length) {
+        if (!this.loop) { void this.stop(); cb.state('idle', 'Replay finished.'); return; }
+        i = 0; t0 = performance.now();
+      }
+    }, 20);
+  }
+
+  async stop() { if (this.timer) clearInterval(this.timer); this.timer = null; }
 }

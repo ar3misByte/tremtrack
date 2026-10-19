@@ -290,6 +290,9 @@ std::vector<Scenario> scenarios() {
   { Scenario s; s.name = "tremor_walk_nonharmonic"; s.desc = "Walking 1.8 steps/s with 'no-no' 5.0 Hz 12 dps (not a step harmonic)"; s.dur = 60; s.walk = true; s.stepHz = 1.8; s.tremors = { { 2, 5.0, 12, 15, 45 } }; add(s); }
   { Scenario s; s.name = "tremor_walk_harmonic"; s.desc = "Walking 2.0 steps/s with 'yes-yes' 6.0 Hz 12 dps (3x step rate: known limit)"; s.dur = 60; s.walk = true; s.stepHz = 2.0; s.tremors = { { 0, 6.0, 12, 15, 45 } }; add(s); }
   { Scenario s; s.name = "fall"; s.desc = "Still, free fall 0.35 s, ~9 g impact, lying still"; s.dur = 30; s.fall = true; s.fallT = 10; add(s); }
+  { Scenario s; s.name = "showcase"; s.desc = "Demo recording: still, no-no tremor, walking, yes-yes tremor, finger off (120 s)"; s.dur = 120;
+    s.walk = true; s.stepHz = 1.9; s.walkT0 = 36; s.walkT1 = 56;
+    s.tremors = { { 2, 5.2, 12, 10, 28 }, { 0, 4.6, 9, 62, 76 } }; s.fingerOff0 = 92; s.fingerOff1 = 106; add(s); }
   { Scenario s; s.name = "no_finger"; s.desc = "Still; finger off the PPG sensor from 10 s to 30 s"; s.dur = 50; s.fingerOff0 = 10; s.fingerOff1 = 30; add(s); }
   return v;
 }

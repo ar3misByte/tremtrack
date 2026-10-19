@@ -15,6 +15,7 @@ export const IconUsb = () => <I><path d="M12 3v14M8.5 6.5 12 3l3.5 3.5M12 13l-4-
 export const IconBluetooth = () => <I><path d="m7 7 10 10-5 4V3l5 4L7 17" /></I>;
 export const IconWifi = () => <I><path d="M2.5 9a14 14 0 0 1 19 0M5.5 12.5a9.5 9.5 0 0 1 13 0M8.5 16a5 5 0 0 1 7 0" /><circle cx="12" cy="19" r="1" /></I>;
 export const IconPlay = () => <I><circle cx="12" cy="12" r="8.5" /><path d="m10 8.5 5 3.5-5 3.5z" /></I>;
+export const IconReplay = () => <I><path d="M4 12a8 8 0 1 0 2.4-5.7L4 8.5" /><path d="M4 4v4.5h4.5" /><path d="m10.5 9 4.5 3-4.5 3z" /></I>;
 export const IconClose = () => <I><path d="M6 6l12 12M18 6 6 18" /></I>;
 export const IconRecenter = () => <I><circle cx="12" cy="12" r="3" /><path d="M12 2.5v4M12 17.5v4M2.5 12h4M17.5 12h4" /></I>;
 export const IconCube = () => <I><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9z" /><path d="m4 7.5 8 4.5 8-4.5M12 12v9" /></I>;
