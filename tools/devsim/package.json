@@ -1,0 +1,21 @@
+{
+  "name": "@htm/devsim",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Device simulator: streams protocol lines over WebSocket / stdout (MQTT to AWS arrives in milestone 6).",
+  "scripts": {
+    "start": "tsx src/devsim.ts",
+    "test": "node --import tsx --test src/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "@types/ws": "^8.18.2",
+    "tsx": "^4.23.15",
+    "typescript": "^6.0.3"
+  },
+  "dependencies": {
+    "ws": "^8.22.0"
+  }
+}

@@ -1,0 +1,99 @@
+/* Design tokens: the ONLY place colours, type, spacing, radii and shadows are defined.
+   Direction (from the UI/UX brief): calm, clinical, light, warm neutrals, one terracotta accent
+   reserved for tremor / alerts / live signal, a muted sage for "steady".
+   Contrast: text tokens meet WCAG AA (4.5:1) on --surface and --bg; --accent itself is for
+   graphics and large text only, use --accent-ink for small accent text. */
+:root {
+  /* surfaces */
+  --bg: #f2f1ee;
+  --bg-alert: #f7ece6;
+  --surface: #ffffff;
+  --surface-2: #f8f7f4;
+  --surface-sunk: #ebe9e4;
+  --line: #e3e0da;
+  --line-strong: #cfcbc3;
+
+  /* ink */
+  --ink: #1d1f22;
+  --ink-2: #5b6068;          /* secondary text, 6.2:1 on white */
+  --ink-3: #6f747b;          /* tertiary, 4.8:1 on white: labels only */
+  --ink-inverse: #ffffff;
+
+  /* signal */
+  --accent: #d9602f;         /* terracotta: tremor, alerts, live */
+  --accent-ink: #ad4618;     /* accent text on light surfaces, 5.3:1 */
+  --accent-soft: #fbe7dd;
+  --ok: #5f8b6b;             /* sage: steady */
+  --ok-ink: #3f6a4b;
+  --ok-soft: #e4eee6;
+  --warn: #a8741a;
+  --warn-ink: #7a5310;
+  --warn-soft: #f7ecd6;
+  --heart: #c4475a;
+
+  /* the three motion axes (charts, bars, 3D axis rings) */
+  --axis-pitch: #3f7d8c;     /* nod, "yes-yes" */
+  --axis-roll: #a7843c;      /* tilt */
+  --axis-yaw: #6a6fb0;       /* turn, "no-no" */
+
+  /* head model */
+  --skin: #d9ab8c;
+  --hair: #3a2b24;
+  --headset: #2b2e33;
+  --headset-pod: #f4f3f0;
+
+  /* type */
+  --font-sans: 'Manrope Variable', 'Manrope', 'Segoe UI', system-ui, -apple-system, Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, Consolas, monospace;
+  --fs-xs: 0.75rem;
+  --fs-sm: 0.8125rem;
+  --fs-md: 0.9375rem;
+  --fs-lg: 1.125rem;
+  --fs-xl: 1.5rem;
+  --fs-2xl: 2rem;
+  --fs-display: 3.5rem;
+  --fw-light: 300;
+  --fw-regular: 450;
+  --fw-medium: 560;
+  --fw-bold: 700;
+  --lh-tight: 1.1;
+  --lh-body: 1.45;
+  --tracking-display: -0.035em;
+
+  /* spacing (4 px grid) */
+  --s-1: 0.25rem;
+  --s-2: 0.5rem;
+  --s-3: 0.75rem;
+  --s-4: 1rem;
+  --s-5: 1.25rem;
+  --s-6: 1.5rem;
+  --s-8: 2rem;
+  --s-10: 2.5rem;
+  --gutter: 1rem;
+
+  /* shape */
+  --r-sm: 12px;
+  --r-md: 18px;
+  --r-lg: 26px;
+  --r-pill: 999px;
+  --shadow-1: 0 1px 2px rgba(40, 32, 24, 0.04), 0 6px 20px rgba(40, 32, 24, 0.05);
+  --shadow-2: 0 2px 6px rgba(40, 32, 24, 0.06), 0 16px 40px rgba(40, 32, 24, 0.10);
+  --focus: 0 0 0 3px rgba(106, 111, 176, 0.45);
+
+  /* motion */
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --dur: 220ms;
+
+  /* layout */
+  --tabbar-h: 4.5rem;
+  --content-max: 30rem;
+  --content-max-wide: 72rem;
+
+  color-scheme: light;
+}
+
+:root[data-text='large'] { font-size: 118.75%; }
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --dur: 0ms; }
+}
