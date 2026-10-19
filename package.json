@@ -1,0 +1,17 @@
+{
+  "name": "head-tremor-monitor",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Head tremor monitor prototype: ESP32 firmware, PWA and AWS backend. Not a medical device.",
+  "workspaces": ["app", "tools/devsim"],
+  "scripts": {
+    "dev": "npm run dev -w app",
+    "build": "npm run build -w app",
+    "test": "npm run test -w app && npm run test -w tools/devsim",
+    "lint": "npm run lint -w app",
+    "typecheck": "npm run typecheck -w app && npm run typecheck -w tools/devsim",
+    "sim": "npm run start -w tools/devsim --",
+    "hostsim": "node tools/hostsim/run.mjs"
+  },
+  "engines": { "node": ">=20" }
+}

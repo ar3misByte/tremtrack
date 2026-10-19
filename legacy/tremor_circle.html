@@ -1,0 +1,682 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Head Tremor Monitor</title>
+<style>
+  :root {
+    --field: #e5ebed;
+    --field-alert: #f6d9cc;
+    --paper: #f5f8f9;
+    --ink: #14202c;
+    --muted: #55657a;
+    --line: #c5cfd4;
+    --pitch: #16796b;
+    --roll: #a86f00;
+    --yaw: #2f63c8;
+    --alert: #e2512b;
+    --heart: #c2314b;
+    --font: "Avenir Next", "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+    color-scheme: light;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font: 14px/1.45 var(--font);
+    font-variant-numeric: tabular-nums;
+  }
+  .app { display: grid; grid-template-columns: minmax(0, 1fr) 372px; min-height: 100vh; }
+
+  /* ---------- stage ---------- */
+  .stage {
+    position: relative;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    background: var(--field);
+    transition: background-color .4s ease;
+  }
+  .stage.alert { background: var(--field-alert); }
+  .arenaWrap { position: relative; width: min(100%, calc(100vh - 48px)); aspect-ratio: 1 / 1; }
+  #arena { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  .stageLabel { position: absolute; left: 26px; top: 20px; max-width: 220px; pointer-events: none; }
+  .stageLabel b { display: block; font-size: 24px; line-height: 1.15; letter-spacing: -0.02em; }
+  .stageLabel span { display: block; color: var(--muted); font-size: 13px; margin-top: 2px; }
+  .stage.alert .stageLabel b { color: var(--alert); }
+
+  /* ---------- side panel ---------- */
+  .side { max-height: 100vh; overflow-y: auto; padding: 28px 28px 36px; border-left: 1px solid var(--line); }
+  .side section { padding: 18px 0; border-top: 1px solid var(--line); }
+  .side section:first-child { padding-top: 0; border-top: 0; }
+  h1 { margin: 0; font-size: 34px; line-height: 1.08; letter-spacing: -0.03em; }
+  h2 { margin: 0 0 10px; font-size: 13px; font-weight: 650; color: var(--muted); }
+  .dir { margin: 6px 0 0; color: var(--muted); min-height: 2.9em; }
+  .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 14px 0 0; }
+  .metrics dt { color: var(--muted); font-size: 12px; }
+  .metrics dd { margin: 2px 0 0; font-size: 20px; font-weight: 650; letter-spacing: -0.01em; }
+
+  .btns { display: flex; gap: 8px; flex-wrap: wrap; }
+  .btn {
+    font: inherit; font-weight: 600; cursor: pointer;
+    padding: 9px 16px; border-radius: 999px;
+    border: 1.5px solid var(--ink); background: transparent; color: var(--ink);
+  }
+  .btn:hover { background: rgba(20, 32, 44, .07); }
+  .btn.primary { background: var(--ink); color: #fff; }
+  .btn.primary:hover { background: #26384b; }
+  .btn[aria-pressed="true"] { background: var(--ink); color: #fff; }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .btn:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid var(--yaw); outline-offset: 2px; }
+
+  .conn { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: #9aa8b2; flex: none; }
+  .dot.live { background: var(--pitch); }
+  .dot.wait { background: var(--roll); }
+  .note { margin: 6px 0 0; color: var(--muted); font-size: 13px; min-height: 1.4em; }
+  .warn { margin: 10px 0 0; padding: 10px 12px; border-radius: 10px; background: #fdecd5; color: #6b3d00; font-size: 13px; }
+
+  .axisRow { display: grid; grid-template-columns: 10px 104px 1fr 52px; align-items: center; gap: 10px; margin: 8px 0; }
+  .axisRow .sw { width: 10px; height: 10px; border-radius: 3px; }
+  .track { height: 8px; border-radius: 4px; background: #dde5e8; overflow: hidden; }
+  .track i { display: block; height: 100%; width: 0; border-radius: 4px; transition: width .12s linear; }
+  .axisRow b { text-align: right; font-weight: 600; }
+  .axisRow.on b { color: var(--alert); }
+
+  #wave { width: 100%; height: 120px; display: block; border-radius: 10px; background: #fff; border: 1px solid var(--line); }
+  .legend { display: flex; gap: 14px; margin-top: 8px; color: var(--muted); font-size: 12px; }
+  .legend span::before { content: ""; display: inline-block; width: 10px; height: 3px; margin-right: 6px; vertical-align: middle; border-radius: 2px; background: var(--c); }
+
+  .ctl { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; align-items: center; margin: 10px 0; }
+  .ctl label { color: var(--ink); }
+  .ctl output { color: var(--muted); min-width: 3.2em; text-align: right; }
+  .ctl input[type="range"] { grid-column: 1 / -1; width: 100%; accent-color: var(--ink); }
+  .checks { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 12px 0; }
+  .checks label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+  select { font: inherit; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: #fff; color: var(--ink); }
+  .hint { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
+  #raw { margin: 0; padding: 10px; border-radius: 10px; background: #fff; border: 1px solid var(--line); font: 12px/1.4 ui-monospace, Menlo, Consolas, monospace; color: var(--muted); white-space: pre-wrap; word-break: break-all; min-height: 3em; }
+  .vitals { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 4px 0 10px; }
+  .vitals div { padding: 10px 12px; border-radius: 12px; background: #fff; border: 1px solid var(--line); }
+  .vitals dt { color: var(--muted); font-size: 12px; }
+  .vitals dd { margin: 2px 0 0; font-size: 30px; line-height: 1.1; font-weight: 650; letter-spacing: -0.02em; }
+  .vitals dd small { font-size: 13px; font-weight: 500; color: var(--muted); margin-left: 4px; letter-spacing: 0; }
+  .vitals.ok dd { color: var(--heart); }
+  #pulse { width: 100%; height: 64px; display: block; border-radius: 10px; background: #fff; border: 1px solid var(--line); }
+  .vstate { margin: 8px 0 0; color: var(--muted); font-size: 13px; min-height: 1.4em; }
+  [hidden] { display: none !important; }
+
+  @media (max-width: 900px) {
+    .app { grid-template-columns: 1fr; }
+    .stage { display: block; padding: 16px; }
+    .arenaWrap { width: 100%; }
+    .side { max-height: none; border-left: 0; border-top: 1px solid var(--line); padding: 22px 16px 32px; }
+    .stageLabel { position: static; max-width: none; margin: 0 0 10px 4px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .stage, .track i { transition: none; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <main class="stage" id="stage">
+    <div class="arenaWrap">
+      <canvas id="arena" aria-label="Circle that follows the tilt of the sensor board"></canvas>
+    </div>
+    <div class="stageLabel" aria-live="polite"><b id="stageState">Waiting</b><span id="stageSub">No data yet</span></div>
+  </main>
+
+  <aside class="side">
+    <section>
+      <h1 id="tState">Waiting for data</h1>
+      <p class="dir" id="tDir">Connect the ESP32, or try demo mode.</p>
+      <dl class="metrics">
+        <div><dt>Frequency</dt><dd id="mFreq">&ndash;</dd></div>
+        <div><dt>Amplitude</dt><dd id="mAmp">&ndash;</dd></div>
+        <div><dt>Repeats</dt><dd id="mQ">&ndash;</dd></div>
+      </dl>
+    </section>
+
+    <section>
+      <div class="btns">
+        <button class="btn primary" id="btnConnect" type="button">Connect ESP32</button>
+        <button class="btn" id="btnDemo" type="button" aria-pressed="false">Demo mode</button>
+      </div>
+      <div class="conn"><span class="dot" id="connDot"></span><span id="connText">Not connected</span></div>
+      <p class="note" id="fwNote"></p>
+      <p class="warn" id="support" hidden>This browser can&rsquo;t open serial ports. Open this page in Chrome or Edge on a desktop computer.</p>
+    </section>
+
+    <section id="vitalsSec">
+      <h2>Heart rate and SpO&#8322;</h2>
+      <dl class="vitals" id="vitals">
+        <div><dt>Heart rate</dt><dd><span id="vBpm">&ndash;</span><small>bpm</small></dd></div>
+        <div><dt>Oxygen (SpO&#8322;)</dt><dd><span id="vSpo2">&ndash;</span><small>%</small></dd></div>
+      </dl>
+      <canvas id="pulse" aria-label="Pulse waveform from the finger sensor"></canvas>
+      <p class="vstate" id="vState">Waiting for data</p>
+    </section>
+
+    <section>
+      <h2>Shaking by axis</h2>
+      <div class="axisRow" id="rowP"><i class="sw" style="background:var(--pitch)"></i><span>Pitch (nod)</span><div class="track"><i id="barP" style="background:var(--pitch)"></i></div><b id="valP">0</b></div>
+      <div class="axisRow" id="rowR"><i class="sw" style="background:var(--roll)"></i><span>Roll (tilt)</span><div class="track"><i id="barR" style="background:var(--roll)"></i></div><b id="valR">0</b></div>
+      <div class="axisRow" id="rowY"><i class="sw" style="background:var(--yaw)"></i><span>Yaw (shake)</span><div class="track"><i id="barY" style="background:var(--yaw)"></i></div><b id="valY">0</b></div>
+    </section>
+
+    <section>
+      <h2>Filtered gyro, last 5 seconds</h2>
+      <canvas id="wave" aria-label="Band-passed gyro waveforms"></canvas>
+      <div class="legend"><span style="--c:var(--pitch)">Pitch</span><span style="--c:var(--roll)">Roll</span><span style="--c:var(--yaw)">Yaw</span><span id="waveScale" style="margin-left:auto"></span></div>
+    </section>
+
+    <section id="demoCtl" hidden>
+      <h2>Demo controls</h2>
+      <div class="ctl">
+        <label for="simDir">Tremor type</label>
+        <select id="simDir">
+          <option value="0">Vertical (Yes&#8209;Yes)</option>
+          <option value="2">Horizontal (No&#8209;No)</option>
+          <option value="1">Tilting (roll)</option>
+        </select>
+      </div>
+      <div class="btns"><button class="btn" id="btnSim" type="button" aria-pressed="false">Start tremor</button> <button class="btn" id="btnWalk" type="button" aria-pressed="false">Start walking</button></div>
+      <p class="hint">Move the mouse over the circle to steer it.</p>
+    </section>
+
+    <section>
+      <h2>Detection</h2>
+      <div class="ctl">
+        <label for="sens">Tremor sensitivity</label>
+        <select id="sens" disabled>
+          <option value="1">1 &ndash; strict</option>
+          <option value="2" selected>2 &ndash; default</option>
+          <option value="3">3</option>
+          <option value="4">4</option>
+          <option value="5">5 &ndash; very sensitive</option>
+        </select>
+      </div>
+      <p class="hint" id="sensHint">Connect the ESP32 to change this. Raise it if real shaking is missed, lower it if ordinary movement is flagged.</p>
+    </section>
+
+    <section>
+      <h2>View</h2>
+      <div class="ctl">
+        <label for="range">Circle range</label><output id="rangeOut">&plusmn;25&deg;</output>
+        <input type="range" id="range" min="8" max="60" step="1" value="25">
+      </div>
+      <div class="ctl">
+        <label for="boost">Tremor exaggeration</label><output id="boostOut">3&times;</output>
+        <input type="range" id="boost" min="1" max="10" step="0.5" value="3">
+      </div>
+      <div class="ctl">
+        <label for="xsrc">Horizontal movement from</label>
+        <select id="xsrc"><option value="roll">Roll (tilt)</option><option value="yaw">Yaw (turn)</option></select>
+      </div>
+      <div class="checks">
+        <label><input type="checkbox" id="flipX"> Flip left/right</label>
+        <label><input type="checkbox" id="flipY"> Flip up/down</label>
+        <label><input type="checkbox" id="swap"> Swap axes</label>
+        <label><input type="checkbox" id="trail" checked> Trail</label>
+      </div>
+      <div class="btns"><button class="btn" id="btnCenter" type="button">Recenter (C)</button></div>
+    </section>
+
+    <section>
+      <h2>Last line received</h2>
+      <pre id="raw">&ndash;</pre>
+    </section>
+  </aside>
+</div>
+
+<script>
+(() => {
+'use strict';
+const $ = id => document.getElementById(id);
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const FONT = getComputedStyle(document.body).fontFamily;
+const C = { ink: '#14202c', alert: '#e2512b', heart: '#c2314b', line: '#c5cfd4', grid: '#dbe3e6', muted: '#55657a',
+            disk: '#f8fbfc', diskAlert: '#fff4ee', pitch: '#16796b', roll: '#a86f00', yaw: '#2f63c8' };
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+const DIR_LONG  = ['Vertical shaking (pitch, “Yes‑Yes”)', 'Tilting back and forth (roll)', 'Horizontal shaking (yaw, “No‑No”)'];
+const DIR_SHORT = ['Vertical', 'Tilting', 'Horizontal'];
+
+const S = {
+  mode: 'idle',                      // idle | serial | demo
+  port: null, reader: null,
+  lastRx: 0, rateCount: 0, rate: 0, rawLine: '',
+  L: { pitch: 0, roll: 0, yaw: 0, fP: 0, fR: 0, fY: 0, tremor: 0, dir: 0, aP: 0, aR: 0, aY: 0, freq: 0, q: 0 },
+  off: { pitch: 0, roll: 0, yaw: 0 },
+  lp: { pitch: 0, roll: 0, yaw: 0, init: false },
+  disp: { pitch: 0, roll: 0, yaw: 0 },
+  pos: { x: 0, y: 0 },
+  trail: [],
+  fresh: false, active: false,
+  pointer: null, sim: false, walk: false,
+  V: { bpm: 0, spo2: 0, state: -1 }
+};
+
+/* ------------------------------------------------------------------ */
+/* Data in: one CSV line from the ESP32 (or the demo generator)        */
+/* ------------------------------------------------------------------ */
+function handleLine(line) {
+  line = line.trim();
+  if (!line) return;
+  if (line[0] !== '$') {                       // human-readable status from the firmware
+    S.rawLine = line;
+    if (line[0] === '#') $('fwNote').textContent = line.replace(/^#\s*/, '');
+    return;
+  }
+  const f = line.split(',');
+  if (f.length < 14) return;
+  const n = f.slice(1, 14).map(Number);
+  if (n.some(v => !Number.isFinite(v))) return;
+  const ex = f.slice(14, 17).map(Number);                 // optional: walking, stepHz, cycles (older firmware omits them)
+  S.L.walking = ex.length > 0 && ex[0] === 1 ? 1 : 0;
+  S.L.step = ex.length > 1 && Number.isFinite(ex[1]) ? ex[1] : 0;
+  S.L.cycles = ex.length > 2 && Number.isFinite(ex[2]) ? ex[2] : 0;
+  const vt = f.slice(17, 21).map(Number);                 // optional: bpm, spo2, ppgState, pulse (MAX30102)
+  if (vt.length === 4 && vt.every(Number.isFinite)) {
+    S.V.bpm = vt[0]; S.V.spo2 = vt[1]; S.V.state = vt[2]; pushPulse(vt[3]);
+  } else { S.V.state = -1; S.V.bpm = 0; S.V.spo2 = 0; }
+  const L = S.L;
+  [L.pitch, L.roll, L.yaw, L.fP, L.fR, L.fY, L.tremor, L.dir, L.aP, L.aR, L.aY, L.freq, L.q] = n;
+  S.lastRx = performance.now();
+  S.rateCount++;
+  S.rawLine = line;
+  pushWave(L.fP, L.fR, L.fY);
+  updateDisp();
+}
+
+// Displayed angles = angle relative to the recentred pose, with the fast (tremor)
+// part of the motion exaggerated so small shakes are visible on stage.
+function updateDisp() {
+  const L = S.L, o = S.off, lp = S.lp;
+  const a = { pitch: L.pitch - o.pitch, roll: L.roll - o.roll, yaw: L.yaw - o.yaw };
+  const boost = +$('boost').value;
+  for (const k of ['pitch', 'roll', 'yaw']) {
+    if (!lp.init) lp[k] = a[k];
+    lp[k] += (a[k] - lp[k]) * 0.2;             // ~1.8 Hz low-pass at 50 updates/s
+    S.disp[k] = a[k] + (boost - 1) * (a[k] - lp[k]);
+  }
+  lp.init = true;
+}
+
+function recenter() {
+  S.off = { pitch: S.L.pitch, roll: S.L.roll, yaw: S.L.yaw };
+  S.lp.init = false;
+  updateDisp();
+}
+
+/* ------------------------------------------------------------------ */
+/* Web Serial                                                          */
+/* ------------------------------------------------------------------ */
+async function connectSerial() {
+  if (!('serial' in navigator)) { $('support').hidden = false; return; }
+  if (S.mode === 'demo') stopDemo();
+  try {
+    const port = await navigator.serial.requestPort();
+    await port.open({ baudRate: 115200 });
+    S.port = port;
+    setMode('serial');
+    $('fwNote').textContent = 'Port open. The board restarts and calibrates for about 2 seconds, keep it still.';
+    readLoop(port);
+  } catch (e) {
+    if (e && e.name === 'NotFoundError') return;          // chooser dismissed
+    $('fwNote').textContent = 'Could not open the port: ' + (e && e.message ? e.message : e) +
+      '. Close the Arduino Serial Monitor and try again.';
+    setMode('idle');
+  }
+}
+
+async function readLoop(port) {
+  const dec = new TextDecoder();
+  let buf = '';
+  const reader = port.readable.getReader();
+  S.reader = reader;
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf('\n')) >= 0) { handleLine(buf.slice(0, i)); buf = buf.slice(i + 1); }
+      if (buf.length > 4096) buf = '';
+    }
+  } catch (e) {
+    $('fwNote').textContent = 'Serial connection lost: ' + (e && e.message ? e.message : e);
+  } finally {
+    try { reader.releaseLock(); } catch (_) {}
+    try { await port.close(); } catch (_) {}
+    S.port = null; S.reader = null;
+    if (S.mode === 'serial') setMode('idle');
+  }
+}
+
+async function disconnectSerial() { if (S.reader) { try { await S.reader.cancel(); } catch (_) {} } }
+
+/* ------------------------------------------------------------------ */
+/* Demo mode: generates lines in the same format the firmware sends    */
+/* ------------------------------------------------------------------ */
+let demoTimer = null;
+function startDemo() {
+  if (S.mode === 'serial') return;
+  setMode('demo');
+  const t0 = performance.now();
+  const st = { x: 0, y: 0 };
+  demoTimer = setInterval(() => {
+    const t = (performance.now() - t0) / 1000;
+    const range = +$('range').value;
+    let bx, by;
+    if (S.pointer) { bx = S.pointer.x * range * 0.95; by = S.pointer.y * range * 0.95; }
+    else { bx = Math.sin(t * 0.6) * range * 0.55; by = Math.sin(t * 0.45 + 1.2) * range * 0.45; }
+    st.x += (bx - st.x) * 0.15; st.y += (by - st.y) * 0.15;
+
+    let roll = st.x, pitch = st.y, yaw = Math.sin(t * 0.3) * 25;
+    const ang = [pitch, roll, yaw], gyro = [0, 0, 0], amp = [0.3, 0.3, 0.3];
+    let tr = 0, dir = 0, freq = 0, q = 0.2;
+    const sf = 1.9;
+    if (S.walk) {                                           // casual bob and sway of a walking head
+      const p = 2 * Math.PI * sf * t;
+      ang[0] += 2.0 * Math.sin(p); ang[1] += 1.5 * Math.sin(p / 2); ang[2] += 3 * Math.sin(p / 2 + 1);
+      gyro[0] = 2.0 * 2 * Math.PI * sf * Math.cos(p); amp[0] = 8;
+    }
+    if (S.sim) {
+      const d = +$('simDir').value, fz = 5.5, A = 1.2 * (1 + 0.15 * Math.sin(t * 1.3));
+      const w = 2 * Math.PI * fz;
+      ang[d] += A * Math.sin(w * t);
+      gyro[d] = A * w * Math.cos(w * t);
+      amp[d] = A * w; tr = 1; dir = d; freq = fz + 0.3 * Math.sin(t * 2); q = 0.9;
+    }
+    handleLine(['$', ang[0].toFixed(1), ang[1].toFixed(1), ang[2].toFixed(1),
+      gyro[0].toFixed(2), gyro[1].toFixed(2), gyro[2].toFixed(2), tr, dir,
+      amp[0].toFixed(1), amp[1].toFixed(1), amp[2].toFixed(1), freq.toFixed(1), q.toFixed(2),
+      S.walk ? 1 : 0, S.walk ? sf.toFixed(2) : '0.00', tr ? 8 : 0,
+      Math.round(72 + 3 * Math.sin(t * 0.2)), 97, 3,
+      (60 * (Math.sin(2 * Math.PI * 1.2 * t) + 0.35 * Math.sin(4 * Math.PI * 1.2 * t + 1))).toFixed(1)].join(','));
+  }, 20);
+}
+function stopDemo() {
+  clearInterval(demoTimer); demoTimer = null; S.sim = false; S.walk = false; S.pointer = null;
+  $('btnSim').setAttribute('aria-pressed', 'false'); $('btnSim').textContent = 'Start tremor';
+  $('btnWalk').setAttribute('aria-pressed', 'false'); $('btnWalk').textContent = 'Start walking';
+  if (S.mode === 'demo') setMode('idle');
+}
+
+function setMode(m) {
+  S.mode = m;
+  $('btnConnect').textContent = m === 'serial' ? 'Disconnect' : 'Connect ESP32';
+  $('btnConnect').classList.toggle('primary', m !== 'serial');
+  $('btnDemo').setAttribute('aria-pressed', String(m === 'demo'));
+  $('btnDemo').textContent = m === 'demo' ? 'Stop demo' : 'Demo mode';
+  $('btnDemo').disabled = m === 'serial';
+  $('demoCtl').hidden = m !== 'demo';
+  $('sens').disabled = m !== 'serial';
+  if (m === 'idle') S.lastRx = 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* Waveform strip                                                      */
+/* ------------------------------------------------------------------ */
+const WN = 250;
+const wave = [new Float32Array(WN), new Float32Array(WN), new Float32Array(WN)];
+let wHead = 0, waveScale = 10;
+function pushWave(a, b, c) { wave[0][wHead] = a; wave[1][wHead] = b; wave[2][wHead] = c; wHead = (wHead + 1) % WN; }
+
+const PN = 250;
+const pulseBuf = new Float32Array(PN);
+let pHead = 0, pulseScale = 20;
+function pushPulse(v) { pulseBuf[pHead] = v; pHead = (pHead + 1) % PN; }
+function drawPulse() {
+  const cv = $('pulse'), w = cv.clientWidth, h = cv.clientHeight;
+  if (!w || !h) return;
+  const dpr = window.devicePixelRatio || 1;
+  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+  const g = cv.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+  let mx = 0;
+  for (let i = 0; i < PN; i++) mx = Math.max(mx, Math.abs(pulseBuf[i]));
+  pulseScale += (Math.max(10, mx * 1.2) - pulseScale) * 0.1;
+  g.strokeStyle = C.grid; g.lineWidth = 1;
+  g.beginPath(); g.moveTo(0, h / 2); g.lineTo(w, h / 2); g.stroke();
+  g.strokeStyle = C.heart; g.lineWidth = 1.8; g.lineJoin = 'round';
+  g.beginPath();
+  for (let i = 0; i < PN; i++) {
+    const v = pulseBuf[(pHead + i) % PN];
+    const x = (i / (PN - 1)) * w, y = h / 2 - (v / pulseScale) * (h / 2 - 4);
+    if (i === 0) g.moveTo(x, y); else g.lineTo(x, y);
+  }
+  g.stroke();
+}
+
+function drawWave() {
+  const cv = $('wave'), w = cv.clientWidth, h = cv.clientHeight;
+  if (!w || !h) return;
+  const dpr = window.devicePixelRatio || 1;
+  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+  const g = cv.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+  let mx = 0;
+  for (const ch of wave) for (let i = 0; i < WN; i++) mx = Math.max(mx, Math.abs(ch[i]));
+  waveScale += (Math.max(8, mx * 1.15) - waveScale) * 0.1;
+  g.strokeStyle = C.grid; g.lineWidth = 1;
+  g.beginPath(); g.moveTo(0, h / 2); g.lineTo(w, h / 2); g.stroke();
+  const cols = [C.pitch, C.roll, C.yaw];
+  g.lineWidth = 1.6; g.lineJoin = 'round';
+  for (let c = 0; c < 3; c++) {
+    g.beginPath();
+    for (let i = 0; i < WN; i++) {
+      const v = wave[c][(wHead + i) % WN];
+      const x = (i / (WN - 1)) * w, y = h / 2 - (v / waveScale) * (h / 2 - 4);
+      if (i === 0) g.moveTo(x, y); else g.lineTo(x, y);
+    }
+    g.strokeStyle = cols[c]; g.globalAlpha = 0.9; g.stroke();
+  }
+  g.globalAlpha = 1;
+  $('waveScale').textContent = '±' + Math.round(waveScale) + ' dps';
+}
+
+/* ------------------------------------------------------------------ */
+/* The circle                                                          */
+/* ------------------------------------------------------------------ */
+const arena = $('arena'), actx = arena.getContext('2d');
+
+function targetNorm() {
+  const d = S.disp, range = +$('range').value;
+  let xa = $('xsrc').value === 'yaw' ? -d.yaw : d.roll;
+  let ya = d.pitch;
+  if ($('swap').checked) { const t = xa; xa = ya; ya = t; }
+  if ($('flipX').checked) xa = -xa;
+  if ($('flipY').checked) ya = -ya;
+  return { x: xa / range, y: ya / range };
+}
+
+function drawArena(now) {
+  const w = arena.clientWidth, h = arena.clientHeight;
+  if (!w || !h) return;
+  const dpr = window.devicePixelRatio || 1;
+  if (arena.width !== Math.round(w * dpr) || arena.height !== Math.round(h * dpr)) { arena.width = Math.round(w * dpr); arena.height = Math.round(h * dpr); }
+  const g = actx, L = S.L, active = S.active;
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+  const cx = w / 2, cy = h / 2, R = Math.min(w, h) / 2 - 2, r = R * 0.14, travel = R - r - 8;
+
+  g.beginPath(); g.arc(cx, cy, R, 0, Math.PI * 2);
+  g.fillStyle = active ? C.diskAlert : C.disk; g.fill();
+  g.lineWidth = active ? 3 : 1.5; g.strokeStyle = active ? C.alert : C.line; g.stroke();
+
+  const range = +$('range').value;
+  g.lineWidth = 1; g.strokeStyle = C.grid; g.fillStyle = C.muted; g.font = '11px ' + FONT;
+  for (let i = 1; i <= 3; i++) {
+    const rr = travel * i / 3;
+    g.beginPath(); g.arc(cx, cy, rr, 0, Math.PI * 2); g.stroke();
+    const a = -Math.PI / 4;
+    g.fillText(Math.round(range * i / 3) + '°', cx + Math.cos(a) * rr + 4, cy + Math.sin(a) * rr - 3);
+  }
+  g.beginPath();
+  g.moveTo(cx - R + 14, cy); g.lineTo(cx + R - 14, cy);
+  g.moveTo(cx, cy - R + 14); g.lineTo(cx, cy + R - 14);
+  g.stroke();
+
+  let px = S.pos.x, py = S.pos.y;
+  const m = Math.hypot(px, py);
+  if (m > 1) { px /= m; py /= m; }
+  const bx = cx + px * travel, by = cy + py * travel;
+
+  if ($('trail').checked) { S.trail.push([bx, by]); if (S.trail.length > 40) S.trail.shift(); } else S.trail.length = 0;
+  for (let i = 0; i < S.trail.length; i++) {
+    const t = i / S.trail.length;
+    g.beginPath(); g.arc(S.trail[i][0], S.trail[i][1], r * (0.35 + 0.5 * t), 0, Math.PI * 2);
+    g.fillStyle = 'rgba(' + (active ? '226,81,43' : '20,32,44') + ',' + (0.03 + 0.12 * t).toFixed(3) + ')';
+    g.fill();
+  }
+
+  if (active) {
+    const amp = Math.max(L.aP, L.aR, L.aY), k = clamp(amp / 30, 0.1, 1);
+    const pulse = reduceMotion ? 0.5 : 0.5 + 0.5 * Math.sin(now / 90);
+    g.beginPath(); g.arc(bx, by, r * (1.25 + 0.9 * k) + pulse * 6, 0, Math.PI * 2);
+    g.lineWidth = 3; g.strokeStyle = 'rgba(226,81,43,' + (0.35 + 0.4 * pulse).toFixed(2) + ')'; g.stroke();
+  }
+
+  g.save();
+  g.shadowColor = 'rgba(20,32,44,.28)'; g.shadowBlur = 22; g.shadowOffsetY = 8;
+  g.beginPath(); g.arc(bx, by, r, 0, Math.PI * 2);
+  g.fillStyle = active ? C.alert : C.ink; g.fill();
+  g.restore();
+
+  // needle = yaw (turning the board flat on the table spins it)
+  const ya = -S.disp.yaw * Math.PI / 180 - Math.PI / 2;
+  g.beginPath(); g.moveTo(bx, by); g.lineTo(bx + Math.cos(ya) * r * 0.78, by + Math.sin(ya) * r * 0.78);
+  g.lineWidth = Math.max(3, r * 0.08); g.lineCap = 'round'; g.strokeStyle = C.disk; g.stroke();
+  g.beginPath(); g.arc(bx, by, r * 0.09, 0, Math.PI * 2); g.fillStyle = C.disk; g.fill();
+}
+
+function frame(now) {
+  requestAnimationFrame(frame);
+  const t = targetNorm();
+  S.pos.x += (t.x - S.pos.x) * 0.55;
+  S.pos.y += (t.y - S.pos.y) * 0.55;
+  drawArena(now);
+  drawWave();
+  drawPulse();
+}
+
+/* ------------------------------------------------------------------ */
+/* Text + bars (10 Hz)                                                 */
+/* ------------------------------------------------------------------ */
+let lastRateT = performance.now();
+function ui() {
+  const now = performance.now(), L = S.L;
+  if (now - lastRateT >= 1000) { S.rate = S.rateCount; S.rateCount = 0; lastRateT = now; }
+  S.fresh = S.lastRx > 0 && now - S.lastRx < 1500;
+  S.active = S.fresh && L.tremor === 1;
+
+  $('stage').classList.toggle('alert', S.active);
+  const dot = $('connDot');
+  dot.className = 'dot' + (S.fresh ? ' live' : S.mode === 'serial' ? ' wait' : '');
+  $('connText').textContent = S.fresh
+    ? 'Live, ' + S.rate + ' updates/s' + (S.mode === 'demo' ? ' (demo)' : '')
+    : S.mode === 'serial' ? 'Connected, waiting for data…' : 'Not connected';
+
+  const amp = Math.max(L.aP, L.aR, L.aY);
+  if (!S.fresh) {
+    $('tState').textContent = 'Waiting for data';
+    $('tDir').textContent = 'Connect the ESP32, or try demo mode.';
+    $('stageState').textContent = 'Waiting'; $('stageSub').textContent = 'No data yet';
+    $('mFreq').textContent = $('mAmp').textContent = $('mQ').textContent = '–';
+  } else if (S.active) {
+    $('tState').textContent = 'Tremor detected';
+    $('tDir').textContent = DIR_LONG[L.dir] || '';
+    $('stageState').textContent = 'Tremor';
+    $('stageSub').textContent = (DIR_SHORT[L.dir] || '') + (L.freq > 0 ? ', ' + L.freq.toFixed(1) + ' Hz' : '') + (L.walking ? ' (while walking)' : '');
+    if (L.walking) $('tDir').textContent += ' Detected while walking.';
+  } else if (L.walking) {
+    $('tState').textContent = 'Walking or bobbing';
+    $('tDir').textContent = 'Regular head motion at ' + (L.step > 0 ? L.step.toFixed(1) + ' steps/s' : 'a steady rhythm') + ' is ignored. Tremor needs a higher threshold now.';
+    $('stageState').textContent = 'Walking'; $('stageSub').textContent = 'Not a tremor';
+  } else {
+    $('tState').textContent = 'Steady';
+    $('tDir').textContent = 'No rhythmic shaking between 3.5 and 8.5 Hz.';
+    $('stageState').textContent = 'Steady'; $('stageSub').textContent = 'No tremor detected';
+  }
+  if (S.fresh) {
+    $('mFreq').textContent = L.freq > 0 ? L.freq.toFixed(1) + ' Hz' : '–';
+    $('mAmp').textContent = amp.toFixed(1) + ' dps';
+    $('mQ').textContent = L.tremor === 1 && L.cycles > 0 ? L.cycles + ' cycles' : '–';
+  }
+
+  {
+    const V = S.V, ok = S.fresh && V.state === 3;
+    $('vitals').classList.toggle('ok', ok);
+    $('vBpm').textContent = ok && V.bpm > 0 ? V.bpm : '–';
+    $('vSpo2').textContent = ok && V.spo2 > 0 ? V.spo2 : '–';
+    $('vState').textContent = !S.fresh ? 'Waiting for data'
+      : V.state === 0 ? 'MAX30102 not found. Check its wiring (SDA 21, SCL 22, 3V3, GND).'
+      : V.state === 1 ? 'Rest a fingertip gently on the sensor (no pressing, keep it still).'
+      : V.state === 2 ? 'Measuring. Hold still for about 10 seconds.'
+      : V.state === 3 ? 'Live reading. SpO₂ is an uncalibrated estimate, not a medical measurement.'
+      : 'This firmware does not send heart rate. Flash the latest sketch.';
+  }
+
+  const amps = S.fresh ? [L.aP, L.aR, L.aY] : [0, 0, 0];
+  [['barP', 'valP', 'rowP'], ['barR', 'valR', 'rowR'], ['barY', 'valY', 'rowY']].forEach(([b, v, r], i) => {
+    $(b).style.width = clamp(amps[i] / 30, 0, 1) * 100 + '%';
+    $(v).textContent = amps[i].toFixed(1);
+    $(r).classList.toggle('on', S.active && L.dir === i);
+  });
+  $('raw').textContent = S.rawLine || '–';
+}
+
+/* ------------------------------------------------------------------ */
+/* Wiring                                                              */
+/* ------------------------------------------------------------------ */
+$('btnConnect').addEventListener('click', () => { S.mode === 'serial' ? disconnectSerial() : connectSerial(); });
+$('btnDemo').addEventListener('click', () => { S.mode === 'demo' ? stopDemo() : startDemo(); });
+$('btnSim').addEventListener('click', () => {
+  S.sim = !S.sim;
+  $('btnSim').setAttribute('aria-pressed', String(S.sim));
+  $('btnSim').textContent = S.sim ? 'Stop tremor' : 'Start tremor';
+});
+$('btnWalk').addEventListener('click', () => {
+  S.walk = !S.walk;
+  $('btnWalk').setAttribute('aria-pressed', String(S.walk));
+  $('btnWalk').textContent = S.walk ? 'Stop walking' : 'Start walking';
+});
+$('sens').addEventListener('change', async () => {
+  if (!S.port || !S.port.writable) return;
+  try {
+    const w = S.port.writable.getWriter();
+    await w.write(new TextEncoder().encode($('sens').value));
+    w.releaseLock();
+    $('sensHint').textContent = 'Sensitivity ' + $('sens').value + ' sent to the board. Levels 3 to 5 catch weaker shaking but may flag ordinary movement.';
+  } catch (e) { $('sensHint').textContent = 'Could not send: ' + (e && e.message ? e.message : e); }
+});
+$('btnCenter').addEventListener('click', recenter);
+addEventListener('keydown', e => { if ((e.key === 'c' || e.key === 'C') && !/^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement.tagName)) recenter(); });
+$('range').addEventListener('input', () => { $('rangeOut').textContent = '±' + $('range').value + '°'; });
+$('boost').addEventListener('input', () => { $('boostOut').textContent = $('boost').value + '×'; updateDisp(); });
+arena.addEventListener('pointermove', e => {
+  if (S.mode !== 'demo') return;
+  const r = arena.getBoundingClientRect();
+  S.pointer = { x: clamp(((e.clientX - r.left) / r.width - 0.5) * 2, -1, 1), y: clamp(((e.clientY - r.top) / r.height - 0.5) * 2, -1, 1) };
+});
+arena.addEventListener('pointerleave', () => { S.pointer = null; });
+if (!('serial' in navigator)) { $('support').hidden = false; $('btnConnect').disabled = true; }
+
+setInterval(ui, 100);
+ui();
+requestAnimationFrame(frame);
+
+window.__tremor = { handleLine, S, startDemo, stopDemo };   // hook for testing
+})();
+</script>
+</body>
+</html>
