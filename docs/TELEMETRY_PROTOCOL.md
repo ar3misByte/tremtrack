@@ -1,14 +1,14 @@
 # Telemetry protocol
 
-Status: **v1 local line protocol: specified and implemented.** Cloud MQTT topics and schemas: milestone 6 (section 3 is a placeholder).
+Status: **v1 local line protocol: specified and implemented. v1 cloud MQTT protocol (section 3): specified and implemented in the simulator and the backend (milestone 6); firmware in milestone 7.**
 
 There are three tiers (see `ARCHITECTURE.md`):
 
 | Tier | Rate | Path | Defined in |
 |---|---|---|---|
 | Local stream | 50 Hz | ESP32 → app over USB serial, LAN WebSocket, or BLE | Section 1 (this file) |
-| Cloud telemetry | 0.2–1 Hz | ESP32 → AWS IoT Core (MQTT/TLS) | Section 3 (milestone 6) |
-| Cloud events | on change | ESP32 → AWS IoT Core | Section 3 (milestone 6) |
+| Cloud telemetry | 0.2–1 Hz | ESP32 → AWS IoT Core (MQTT/TLS) | Section 3 |
+| Cloud events | on change | ESP32 → AWS IoT Core | Section 3 |
 
 Raw 50 Hz data is **never** sent to the cloud.
 
@@ -79,6 +79,98 @@ These are not implemented yet. Each will be appended to the data line and listed
 
 (Posture deviation is computed in the app from pitch and roll against the calibrated neutral pose, so it needs no protocol field.)
 
-## 3. Cloud MQTT (milestone 6)
+## 3. Cloud MQTT, version 1 (milestone 6)
 
-To be defined with versioned topic names (`tremor/v1/{thingName}/…`), JSON schemas and example payloads for telemetry, events, status (last will) and commands. It will also cover validation in the IoT rule or Lambda.
+Single source of truth: `app/src/logic/protocol.ts` (types and validators). The device simulator, the Lambdas and the app all import it; the firmware implements the same spec in milestone 7. **No raw 50 Hz data is ever sent to the cloud.** The device sends a summary every 5 s, or every 1 s while someone watches.
+
+### Topics
+
+`tremor/v1/{owner}/{thing}/{kind}`
+
+- `owner`: the user's Cognito identity id, for example `ap-south-1:3f2c…`. It is stored as the thing attribute `owner` when the device is provisioned, and the device policy reads it from there, so a device can never publish under another user.
+- `thing`: the IoT thing name, which is also the device's MQTT client id.
+
+| Kind | Direction | QoS | Retained | Sent when |
+|---|---|---|---|---|
+| `telemetry` | device → cloud | 0 | no | every `per` seconds (5, or 1 while watched) |
+| `event` | device → cloud | 1 | no | tremor start, episode end, fall (pending, then the outcome), sensitivity change, boot |
+| `status` | device → cloud | 1 | **yes** | on connect (`online: true`), every 15 min, and as the **last will** (`online: false`) |
+| `cmd` | app → device | 1 | no | change sensitivity or rate |
+| `viewer` | app → device | 1 | **yes** | the live cloud view opens (`watching: true, until`); the app renews it while open (milestone 7) |
+
+A version change means a new prefix (`tremor/v2/…`), so old and new devices can run side by side. Fields may be **added** within v1, but the validators reject unknown fields, so a new field goes into `protocol.ts` (and this table) before any device sends it.
+
+### Telemetry
+
+Example (5 s period, a "no-no" tremor in progress), 200 bytes:
+
+```json
+{"v":1,"seq":412,"ts":1792483205000,"per":5,"p":-3.1,"r":1.4,"y":12.0,"tr":1,"ax":4,"dir":2,"f":4.6,"a":7.9,
+ "sev":3.2,"wk":0,"hr":74,"sp":97,"ppg":3,"pf":2.5,"pt":-1.0,"st":"normal","rssi":-61,"bat":null}
+```
+
+| Field | Type / range | Meaning |
+|---|---|---|
+| `v` | 1 | protocol version |
+| `seq` | integer ≥ 0 | increments per message; gaps show lost messages |
+| `ts` | ms since epoch (UTC), 2024–2100 | end of the summarised period |
+| `per` | 0.2–60 s | seconds summarised |
+| `p`, `r`, `y` | degrees | mean pitch, roll, yaw over the period |
+| `tr` | 0 / 1 | tremor alert on at the end of the period |
+| `ax` | 0–7 | shaking-axes mask: 1 pitch, 2 roll, 4 yaw |
+| `dir` | 0 / 1 / 2 | strongest axis |
+| `f` | 0–30 Hz | tremor frequency (0 = none) |
+| `a` | 0–2000 deg/s | band amplitude, combined across shaking axes |
+| `sev` | 0–10 | severity of the episode in progress so far (0 = none); same formula as `SEVERITY.md` |
+| `wk` | 0 / 1 | walking |
+| `hr`, `sp` | bpm 20–250 / % 50–100, or null | last valid heart rate and SpO₂ estimate |
+| `ppg` | 0–3 | pulse sensor state, as in the line protocol |
+| `pf`, `pt` | degrees, or null | posture against the calibrated neutral pose (forward, side); null = not calibrated |
+| `st` | `still` / `normal` / `restless` / `walking` | motion state |
+| `rssi` | dBm, or null | Wi-Fi signal |
+| `bat` | %, or null | battery; null = mains or unknown |
+
+Maximum 512 bytes (one 5 KB IoT metering unit).
+
+### Events
+
+Every event has `v`, `seq`, `ts` and `type`, plus:
+
+| `type` | Fields | Example |
+|---|---|---|
+| `tremor_start` | `ax` (1–7), `f` | `{"v":1,"seq":7,"ts":1792483201000,"type":"tremor_start","ax":4,"f":4.6}` |
+| `episode` | `ep`: `start`, `end`, `durationS`, `axes` [0–2], `pattern` (single / diagonal / circular / independent / mixed), `ampDps`, `freqHz`, `score`, `bpm` | `{"v":1,"seq":8,"ts":1792483230000,"type":"episode","ep":{"start":1792483201000,"end":1792483229000,"durationS":28,"axes":[2],"pattern":"single","ampDps":7.9,"freqHz":4.6,"score":3.4,"bpm":74}}` |
+| `fall` | `fall`: `t`, `path` (freefall+impact / impact), `peakG`, `freeFallMs`, `orientationChangeDeg`, `outcome` | sent twice: `pending` at detection, then `cancelled` / `confirmed` / `no-response` |
+| `sensitivity` | `level` 1–5 | after a `cmd` or a local change |
+| `boot` | `fw` (≤ 40 chars), `tzMin` (−720…840) | the time-zone offset sets the user's local day in the cloud |
+
+Maximum 2 KB.
+
+### Status, commands, viewer
+
+```json
+{"v":1,"online":true,"ts":1792483000000,"fw":"htm-0.7.0","tzMin":330,"rate":0.2}    status (retained)
+{"v":1,"online":false}                                                               last will (retained)
+{"v":1,"sens":3}                       cmd: sensitivity 1-5     {"v":1,"rate":1}   cmd: telemetry rate (0.2 or 1 Hz)
+{"v":1,"watching":true,"until":1792483265000}                                        viewer (retained)
+```
+
+The device sends 1 Hz telemetry while `watching` is true and `until` lies in the future, then drops back to 0.2 Hz on its own. A forgotten browser tab therefore cannot keep the rate high, which keeps cost bounded (`COSTS.md`).
+
+### Validation and where it happens
+
+| Where | What is checked |
+|---|---|
+| IoT policy | the device publishes only under its own `owner`/`thing`; the browser only under its own identity |
+| `tremor_telemetry` rule SQL | `v = 1`, `seq` and `ts` are numbers, `ts` within 2024–2100 in **milliseconds**, `per` is a number, `tr` is 0 or 1. Anything else is dropped. Failed actions go to the `RuleErrors` log group |
+| events Lambda | the full `validateEvent` schema; invalid events are logged and dropped |
+| API (`GET /v1/telemetry`) | items are returned as stored; the app validates with `validateTelemetry` on display |
+| tests | `protocol.test.ts` (schemas, sizes, message rate), `infra/test/cloud.e2e.test.ts` (a TypeScript mirror of the rule SQL) |
+
+### Rules (IoT Core → storage)
+
+| Rule | Topic filter | Action |
+|---|---|---|
+| `tremor_telemetry` | `tremor/v1/+/+/telemetry` | DynamoDB `pk=U#owner`, `sk=T#thing#ts`, `ttl` = now + 14 days |
+| `tremor_status` | `tremor/v1/+/+/status` | DynamoDB `D#thing` under the user, and the `DEVICES` registry row |
+| `tremor_events` | `tremor/v1/+/+/event` | events Lambda: stores `E#…`, sends caregiver emails (fall confirmed or unanswered; episode ≥ 10 min), one per kind per 30 min |

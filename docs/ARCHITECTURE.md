@@ -1,6 +1,6 @@
 # Architecture
 
-Status after milestone 5: doctor report PDF generated in the browser (jsPDF, lazily loaded; vector charts). Status after milestone 4: medication schedules, reminders and dose log; quick tags; Insights with time-of-day-matched tag comparisons, paired before/after medication comparisons, heart rate around episodes (bootstrap intervals, Bonferroni-corrected, "not enough data" thresholds), and pattern hints from a reviewable table. Status after milestone 3: firmware reports every shaking axis and per-line acceleration extremes with a ±8 g range; the app adds combined-tremor analysis, fall candidates with a cancel countdown, posture and stillness against a calibrated neutral pose, and resting vitals. Status after milestone 2: the **local path** is built: firmware (unchanged legacy sketch), USB / WebSocket / demo / replay transports, the live view, and local history (sessions, scored episodes, 1 Hz samples in IndexedDB) with Trends. Everything shown dashed below is planned.
+Status after milestone 6: the **AWS backend** is built as one CDK stack in `ap-south-1` (IoT Core with per-device X.509 certificates, IoT rules into DynamoDB, events/aggregate/API Lambdas, HTTP API with Cognito JWT, Cognito user and identity pools, SNS caregiver email, budget, optional S3 + CloudFront hosting), with device provisioning scripts, a kill switch, and the simulator publishing the v1 cloud protocol over MQTT/TLS. The firmware networking and the app's sign-in and live cloud view follow in milestone 7. Status after milestone 5: doctor report PDF generated in the browser (jsPDF, lazily loaded; vector charts). Status after milestone 4: medication schedules, reminders and dose log; quick tags; Insights with time-of-day-matched tag comparisons, paired before/after medication comparisons, heart rate around episodes (bootstrap intervals, Bonferroni-corrected, "not enough data" thresholds), and pattern hints from a reviewable table. Status after milestone 3: firmware reports every shaking axis and per-line acceleration extremes with a ±8 g range; the app adds combined-tremor analysis, fall candidates with a cancel countdown, posture and stillness against a calibrated neutral pose, and resting vitals. Status after milestone 2: the **local path** is built: firmware (unchanged legacy sketch), USB / WebSocket / demo / replay transports, the live view, and local history (sessions, scored episodes, 1 Hz samples in IndexedDB) with Trends. Everything shown dashed below is planned.
 
 ```mermaid
 flowchart LR
@@ -22,24 +22,29 @@ flowchart LR
     APP -- recorder --> IDB
   end
 
-  subgraph AWS["AWS ap-south-1 (M6-M7)"]
-    IOT[IoT Core<br/>MQTT/TLS, X.509]:::planned
-    DDB[(DynamoDB<br/>telemetry TTL, aggregates)]:::planned
-    L1[Lambda<br/>events, daily aggregates]:::planned
-    API[HTTP API + Lambda<br/>Cognito JWT]:::planned
-    COG[Cognito<br/>user + identity pool]:::planned
-    SNS[SNS email<br/>caregiver alerts]:::planned
-    S3[S3 + CloudFront<br/>app hosting]:::planned
+  subgraph AWS["AWS ap-south-1 (built in M6, one CDK stack)"]
+    IOT[IoT Core<br/>MQTT/TLS, X.509 per device]
+    DDB[(DynamoDB single table<br/>telemetry 14-day TTL, events, day summaries)]
+    L1[Lambda: events<br/>validate, store, alert]
+    L2[Lambda: hourly aggregate<br/>day score, resting vitals]
+    API[HTTP API + Lambda<br/>Cognito JWT]
+    COG[Cognito<br/>user + identity pool]
+    SNS[SNS email<br/>caregiver alerts]
+    S3[S3 + CloudFront<br/>app hosting, optional]
   end
 
-  FW -. "summary 0.2-1 Hz + events" .-> IOT
-  IOT -. rule .-> DDB
-  IOT -. rule .-> L1
-  L1 -.-> DDB
-  L1 -.-> SNS
+  FW -. "summary 0.2-1 Hz + events (M7)" .-> IOT
+  SIM -- "same protocol over MQTT/TLS (built)" --> IOT
+  IOT -- "rules: telemetry, status" --> DDB
+  IOT -- "rule: events" --> L1
+  L1 --> DDB
+  L1 --> SNS
+  L2 --> DDB
+  L2 --> SNS
   APP -. "MQTT over WSS (live, Cognito creds)" .-> IOT
   APP -. "history, sync" .-> API
-  API -.-> DDB
+  API --> DDB
+  API --> COG
   classDef planned stroke-dasharray: 4 3,opacity:0.8
 ```
 
@@ -57,7 +62,13 @@ flowchart LR
 | Fall, posture and resting-vitals rules run in the app for now | They are pure, tested TypeScript run on the firmware's output (host-simulator fixtures). The firmware sends the 100 Hz information they need (`aMax`, `aMin`). A firmware port of the fall rule is planned with networking (milestone 7), so a fall can raise a cloud event without the phone. |
 | The firmware reports WHICH axes shake, the app works out HOW they move together | Keeps the device's alert logic unchanged and regression-identical. Phase relations need only the 50 Hz band-passed signals the firmware already streams. |
 | Procedural head model | No licensing questions, about 0 KB of model download, and exactly the requested look (neutral skin, hair, glasses, headband with the sensor pod). See `HEAD_MODEL.md`. |
-| CDK (TypeScript) for AWS, `ap-south-1` | Planned for milestone 6: one language across the repo; region closest to the user. Service availability will be verified then. |
+| CDK (TypeScript) for AWS, `ap-south-1` | One language across the repo; one command to deploy and to destroy. Mumbai is closest to the user, and IoT Core and Cognito user and identity pools are listed there (checked 2026-10-20, `COSTS.md`). |
+| IoT rule writes telemetry straight to DynamoDB; Lambda only for events and an hourly aggregate | No Lambda run per telemetry message. The aggregator overwrites whole hour buckets, so it is idempotent. |
+| Topics carry the owner: `tremor/v1/{owner}/{thing}/…` | The device policy reads the owner from the thing attribute, and the browser policy from the Cognito identity, so neither can publish or read under another user, with no wildcard grants. |
+| Browser live view by **MQTT over WSS with identity-pool credentials** (rather than API Gateway WebSockets) | No server code on the live path, the broker fans out, and credentials are temporary (1 h) and scoped to the user's own topic prefix. The API links a signed-in user to their identity and attaches the IoT policy after checking the identity with Cognito. |
+| Adaptive rate: 0.2 Hz, 1 Hz only while a retained `viewer` flag with an expiry is set | Typical cost about $0.35 a month (`COSTS.md`); a forgotten tab can't keep the rate high. |
+| Provisioned DynamoDB 10/15 | The always-free allowance covers provisioned capacity only; demand is far below it. |
+| One protocol module shared by simulator, Lambdas and app (`logic/protocol.ts`) | The schemas, the rule mirror in the tests, and the docs can't drift apart. The aggregator imports the app's severity formula, so cloud and phone scores match. |
 
 ## Code map
 
@@ -74,6 +85,9 @@ app/src/screens/    Live, Trends, Log, Insights, Report, Settings, About
 app/src/report/     pdf.ts (doctor report layout); logic/reportData.ts assembles its content
 app/src/theme/      tokens.css: every colour, font, size, radius in one place
 tools/hostsim/      mock Arduino + synthetic sensors; run.mjs = regression runner
-tools/devsim/       50 Hz stream over WebSocket / stdout (MQTT in M6)
+tools/devsim/       50 Hz stream over WebSocket / stdout; --mqtt publishes the v1 cloud protocol (mqtt.ts)
+tools/aws/          provision-device, deprovision-device, killswitch, cloud-e2e (use your AWS CLI login)
+infra/              CDK app: lib/stack.ts (the stack), lambda/ (events, aggregate, api, shared), test/ (template + local cloud path)
+app/src/logic/protocol.ts, cloudSummary.ts   cloud protocol v1 and the 50 Hz -> summary/events reducer
 firmware/           tremor_monitor (legacy detector + axes mask, |a| extremes, ±8 g)
 ```

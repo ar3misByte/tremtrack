@@ -10,6 +10,7 @@ secrets.h
 certs/
 firmware/**/device_config.h
 tools/provision/out/
+tools/aws/out/
 .aws/
 
 # --- build output ---

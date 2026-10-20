@@ -2,7 +2,7 @@
 
 Status:
 - **Local (IndexedDB): implemented in milestone 2, extended in milestones 3 and 4 (database version 3).**
-- Milestone 6 adds the DynamoDB single-table design.
+- **Cloud (DynamoDB single table): implemented in milestone 6** (see the last section).
 
 Types: `app/src/logic/model.ts`. Storage: `app/src/data/db.ts`. Writer: `app/src/data/recorder.ts`.
 
@@ -37,3 +37,37 @@ Days are local calendar days (`logic/daily.ts`). A session's monitored time is s
 ## Exports
 - **JSON:** every store, with format and version fields.
 - **CSV:** episodes, and daily summaries (score, episodes, tremor and monitored seconds, share, axis counts).
+
+## Cloud: DynamoDB single table (milestone 6)
+
+One table (`TremorStack-Table…`, `ap-south-1`), keys `pk` / `sk` (strings), TTL attribute `ttl`.
+- **Capacity:** provisioned 10 RCU / 15 WCU, inside the always-free 25 / 25.
+- **Encryption:** AWS-managed encryption at rest.
+- **Access:** no scans anywhere; every read is a key query.
+- **Code:** keys in `infra/lambda/shared.ts`; writers are the IoT rules (`infra/lib/stack.ts`) and the Lambdas.
+
+`owner` is the user's Cognito **identity id**, `sub` the user-pool subject, `ts13` a millisecond timestamp padded to 13 digits so that keys sort by time.
+
+| Item | `pk` | `sk` | Written by | Holds | Expires |
+|---|---|---|---|---|---|
+| Telemetry | `U#owner` | `T#thing#ts13` | rule `tremor_telemetry` | the telemetry message as sent, plus `thing` | **14 days** (TTL) |
+| Event | `U#owner` | `E#ts13#thing#seq` | events Lambda | validated event (tremor start, episode, fall, sensitivity, boot), `thing` | kept |
+| Device status | `U#owner` | `D#thing` | rule `tremor_status` | `online`, `fw`, `tzMin`, `rate`, `lastSeen` | kept until the device is removed |
+| Day summary | `U#owner` | `DAY#yyyy-mm-dd` (the user's local day) | hourly aggregator | one `hHH_thing` bucket per completed hour (monitored, tremor, walking, still, restless seconds; heart-rate and SpO₂ sums and counts, overall and at rest), and the day's totals: `score` (same formula as the app), `episodes`, `combinedEpisodes`, `falls`, `maxEpisodeScore`, `restingBpm`, `restingSpo2` (only with ≥ 30 still readings), `meanBpm` | kept |
+| Alert throttle | `U#owner` | `N#kind` | events Lambda, aggregator | when the last alert of this kind was sent | 30 min (low SpO₂: 2 days) |
+| Synced app records | `U#owner` | `EP#ts13#id`, `SE#…`, `TG#…`, `MD#id`, `DS#id`, `RV#…`, `FE#…` | `PUT /v1/sync` | the app's own rows (episodes, sessions, tags, medications, doses, resting vitals, falls), each ≤ 8 KB | kept until deleted |
+| Profile link | `P#sub` | `PROFILE` | `POST /v1/me/link` | the identity id this sign-in owns, after the API checked it with Cognito | kept until the account is deleted |
+| Device registry | `DEVICES` | `thing` | rule `tremor_status` | `owner`, `lastSeen`, `tzMin`, `online`, `aggHour` (the aggregator's cursor) | kept until the device is removed |
+
+**Access patterns, all queries:**
+- **Live history:** `pk = U#owner AND sk BETWEEN T#thing#from AND T#thing#to`, at most 6 hours per request.
+- **Events:** `sk BETWEEN E#from AND E#to~`.
+- **Days:** `sk BETWEEN DAY#from AND DAY#to`.
+- **Sync:** `begins_with(sk, prefix)`.
+- **Aggregator:** queries the `DEVICES` partition, then each active device's telemetry one hour at a time.
+
+**Idempotency:**
+- Telemetry and events have deterministic keys, so a redelivered message overwrites itself.
+- The aggregator overwrites whole hour buckets, then recomputes the totals from the buckets, so re-runs and retries give the same day.
+
+**Deleting:** `DELETE /v1/me` deletes every `U#owner` item and the profile link. With `?account=true` it also deletes the Cognito user. Devices are removed with `tools/aws/deprovision-device.mjs`.

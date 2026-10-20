@@ -2,7 +2,7 @@
 
 This app handles health-related personal data: head-motion patterns, heart rate, SpO₂, and later medication and symptom logs. This file lists what is stored, where, for how long, and how to delete it. It is updated in every milestone that changes the answer.
 
-## Current state (milestone 5)
+## On this device (milestones 1–5)
 
 | Data | Where | Retention | How to delete |
 |---|---|---|---|
@@ -18,7 +18,32 @@ This app handles health-related personal data: head-motion patterns, heart rate,
 | Raw stream recordings | Only in files **you** download from the Live screen | Your files | Delete the files |
 | Live sensor stream | Memory only (last 5 s for the charts) | Gone when the page closes | n/a |
 
-Nothing is sent to any server. Exports (JSON/CSV) are created in the browser and saved where you choose. The service worker caches only the app's own files and the bundled demo recording, for offline use. Data stored by a browser on a shared computer is readable by anyone using that browser profile.
+Without cloud sign-in, nothing is sent to any server. Exports (JSON/CSV) are created in the browser and saved where you choose. The service worker caches only the app's own files and the bundled demo recording, for offline use. Data stored by a browser on a shared computer is readable by anyone using that browser profile.
 
-## Planned
-- Milestone 6: optional cloud sync to DynamoDB in `ap-south-1`, only when signed in. Encrypted in transit and at rest. Raw 1 Hz telemetry expires automatically (TTL); retention periods will be listed here. Cloud deletion will be added to "delete all my data".
+## Cloud (milestone 6: backend built; the app connects to it from milestone 7)
+
+The cloud is **optional**. The app works fully signed out, and nothing leaves the phone unless you sign in and connect a headset to Wi-Fi. When you use it, data is stored in **your own AWS account** in `ap-south-1` (Mumbai, India); nobody else operates this backend.
+
+| Data | Where | Retention | How to delete |
+|---|---|---|---|
+| Your email and password hash | Cognito user pool | Until the account is deleted | `DELETE /v1/me?account=true` (the app's "Delete my cloud account" in M7) |
+| Telemetry summaries (every 5 s, 1 s while watched): orientation, tremor flag, frequency, amplitude, motion state, posture, heart rate, SpO₂ estimate, Wi-Fi signal, battery | DynamoDB | **14 days**, then deleted automatically (TTL; AWS removes expired items, usually within a few days) | `DELETE /v1/me` |
+| Events: tremor starts, episodes with score, falls and their outcome, sensitivity changes, firmware version and time-zone offset | DynamoDB | Until deleted | `DELETE /v1/me` |
+| Day summaries: monitored and tremor time, score, episode and fall counts, resting heart rate and SpO₂ | DynamoDB | Until deleted | `DELETE /v1/me` |
+| Records you sync from the app (episodes, sessions, tags, **medication names and doses**, dose log, resting vitals, falls) | DynamoDB | Until deleted | `DELETE /v1/me` |
+| Device registry: thing name, owner identity id, last seen, online | DynamoDB, IoT Core registry | Until the device is removed | `node tools/aws/deprovision-device.mjs --thing NAME` |
+| Device status and "someone is watching" flag | IoT Core retained messages | Replaced on each update | Cleared by the deprovision script |
+| Caregiver alert emails (possible fall, long episode, low SpO₂ estimate) | SNS → the email address you set at deploy time | In the recipient's mailbox | Unsubscribe link in the email, or redeploy without `alertEmail` |
+| Function logs: counts, errors, identity id and thing name; up to 40 characters of a field that failed validation. The IoT rule error log holds the **full payload** of any message that could not be stored | CloudWatch Logs | **7 days** | Expire automatically |
+| Per-device certificate and private key | Only on your computer (`tools/aws/out/`, git-ignored) and in the headset firmware | Until you delete them | Deprovision with `--delete-local` |
+
+**Protection:**
+- **In transit:** TLS for everything. The device uses MQTT over TLS with its own X.509 certificate; the browser uses HTTPS and MQTT over WSS.
+- **At rest:** AWS-managed encryption for DynamoDB and SNS.
+- **Access:** each device can publish only under its owner's identity, and each signed-in user can read only their own topics and records (IoT policies with variables; no wildcard permissions).
+- **Credentials:** the browser gets temporary credentials (1 h) from the identity pool. No long-lived AWS keys exist in the app or the firmware.
+- **API:** requires a Cognito ID token, accepts only the configured origins (CORS), and is rate-limited.
+
+**What is not covered yet:** `DELETE /v1/me` removes data in DynamoDB and, optionally, the Cognito user. It does not remove IoT things; use the deprovision script for that. No DynamoDB backups or point-in-time recovery are enabled, so deleted items are not kept anywhere else, apart from the 7-day logs above. Wiring cloud deletion into the app's "Delete all my data" comes with the sign-in work in milestone 7.
+
+**Not a medical service:** alerts are best-effort emails from a prototype. They can be late, duplicated or missed, and must not be relied on for safety.

@@ -54,6 +54,8 @@ export class SessionTracker {
   private sig: [Float64Array, Float64Array, Float64Array] = [new Float64Array(SIG_N), new Float64Array(SIG_N), new Float64Array(SIG_N)];
   private sigHead = 0;
   private sigN = 0;
+  /** The most recent finished 1 s sample (with posture / motion state). */
+  lastSample: Sample | null = null;
   private fall: FallDetector;
   private resting: RestingTracker;
   private prompter: PosturePrompter;
@@ -217,6 +219,7 @@ export class SessionTracker {
       if (zone !== 'ok') s.outsidePoseS = (s.outsidePoseS ?? 0) + 1;
     } else { smp.devForward = null; smp.devTilt = null; smp.zone = null; }
     out.push({ type: 'sample', sample: smp });
+    this.lastSample = smp;
     const r = this.resting.push(smp);
     if (r) out.push({ type: 'resting', reading: r });
     const p = this.prompter.push(smp.t, zone);

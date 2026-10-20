@@ -1,0 +1,11 @@
+{
+  "app": "npx tsx bin/app.ts",
+  "context": {
+    "region": "ap-south-1",
+    "alertEmail": "",
+    "budgetEmail": "",
+    "budgetUsd": 5,
+    "appOrigins": "http://localhost:5173",
+    "withHosting": false
+  }
+}

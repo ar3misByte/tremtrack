@@ -4,6 +4,8 @@
 //   npm run sim -- --stdout                  print lines (pipe into anything)
 //   npm run sim -- --ws --tremor 2           fixed manual controls instead of the scripted showcase
 //   npm run sim -- --ws --tremor 2,0 --phase 90      combined tremor: no-no + yes-yes, a quarter cycle apart (circular)
+//   npm run sim -- --mqtt tools/aws/out/htm-01/devsim.json [--fall-answer no-response] [--minutes 10]
+//        cloud mode: publish to AWS IoT Core like the milestone-7 firmware (see docs/AWS_SETUP.md)
 //   npm run sim -- --ws --hostsim tremor_no_4.5hz_6dps
 //        stream the REAL firmware compiled by tools/hostsim (run `npm run hostsim` once to build it)
 //
@@ -89,6 +91,14 @@ function lanAddresses(): string[] {
 }
 
 export function main(argv = process.argv.slice(2)) {
+  const mi = argv.indexOf('--mqtt');
+  if (mi >= 0) {
+    const fa = argv[argv.indexOf('--fall-answer') + 1];
+    const minutes = argv.includes('--minutes') ? Number(argv[argv.indexOf('--minutes') + 1]) : 0;
+    void import('./mqtt.ts').then((m) => m.startMqtt(argv[mi + 1], { fallAnswer: fa === 'cancelled' || fa === 'confirmed' ? fa : 'no-response', minutes, log: (s) => process.stderr.write(`[devsim] ${s}
+`) }));
+    return;
+  }
   const o = parseArgs(argv);
   const log = (m: string) => { if (!o.quiet) process.stderr.write(`[devsim] ${m}\n`); };
   const clients = new Set<WebSocket>();
