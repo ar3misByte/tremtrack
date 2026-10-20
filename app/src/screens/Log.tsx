@@ -199,7 +199,7 @@ function Notifications() {
   return (
     <section className="card flat" aria-label="Reminders">
       <div className="card-title"><span>Reminders</span><span className="fine">{perm === 'granted' ? 'notifications on' : ''}</span></div>
-      <p className="fine">Reminders appear in the app while it is open{supported ? ', and as notifications if you allow them' : ''}. A web app can't remind you while it's closed; email reminders arrive with the cloud backend (milestone 6).</p>
+      <p className="fine">Reminders appear in the app while it is open{supported ? ', and as notifications if you allow them' : ''}. A web app can't remind you while it's closed, and this prototype has no email or push reminders.</p>
       {supported && perm === 'default' && <button className="btn sm" style={{ marginTop: 'var(--s-3)' }} onClick={async () => setPerm(await Notification.requestPermission())}>Allow notifications</button>}
       {supported && perm === 'denied' && <p className="fine" style={{ marginTop: 'var(--s-2)' }}>Notifications are blocked for this site in your browser settings.</p>}
     </section>

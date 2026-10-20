@@ -13,9 +13,11 @@ export default function About() {
         <ul className="fine" style={{ margin: 0, paddingLeft: '1.1rem', display: 'grid', gap: 4 }}>
           <li>Tremor alerts take about 1.7 s to appear.</li>
           <li>While walking, a tremor at a multiple of the step rate can't be separated from step bounce.</li>
-          <li>Turn (yaw) drifts until the magnetometer is added (milestone 8).</li>
-          <li>The detector has been tested on simulated motion only, not on real heads.</li>
-          <li>Fall detection is a heuristic: it misses slow slumps and soft landings, and dropping the headset looks like a fall. Caregiver alerts are not set up yet (milestone 6).</li>
+          <li>Turn (yaw) drifts slowly without a compass; with the optional compass fitted and calibrated it is kept steady, unless a magnet or steel is close.</li>
+          <li>The detector, the compass correction and the radio links have been tested on simulated motion and in simulators only, not yet on real heads, boards or a real AWS account.</li>
+          <li>Fall detection is a heuristic: it misses slow slumps and soft landings, and dropping the headset looks like a fall. Caregiver alerts (an email, after a fall nobody answered) need the optional cloud, a confirmed email address and a working internet connection, and can be late or missed: do not rely on them for safety.</li>
+          <li>Bluetooth works over a few metres. Wi-Fi setup is sent once over the link you are using, without encryption.</li>
+          <li>The optional cloud stores your data in your own AWS account in Mumbai. The app works fully without it, and nothing is uploaded unless you sign in and press Sync.</li>
           <li>Posture is measured against your own calibrated neutral position; recalibrate if the headset shifts.</li>
           <li>The SpO₂ value, including resting values, is an uncalibrated estimate.</li>
           <li>Insights show associations in your own data, never causes; the pattern wording has not been clinically reviewed.</li>

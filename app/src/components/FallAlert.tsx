@@ -1,5 +1,6 @@
 // Full-screen fall / impact candidate alert with a cancel countdown. Shown on any screen.
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
+import { useFocusTrap } from './useFocusTrap';
 import { recorder, useRecorder } from '../data/recorder';
 import { thresholds } from '../state/settings';
 import { useReducedMotion } from './hooks';
@@ -14,6 +15,9 @@ function beep(ctx: AudioContext) {
   o.start(); o.stop(ctx.currentTime + 0.4);
 }
 
+// the open dialog, whichever of its two views (countdown, result) is showing
+const fallCard = { get current() { return document.querySelector<HTMLElement>('.fall-card'); } } as RefObject<HTMLElement | null>;
+
 export default function FallAlert() {
   const r = useRecorder();
   const reduced = useReducedMotion();
@@ -21,6 +25,7 @@ export default function FallAlert() {
   const [muted, setMuted] = useState(false);
   const [result, setResult] = useState<'confirmed' | 'no-response' | null>(null);
   const okBtn = useRef<HTMLButtonElement>(null);
+  useFocusTrap(fallCard);
   const audio = useRef<AudioContext | null>(null);
   const active = r.fall;
 
@@ -80,7 +85,7 @@ export default function FallAlert() {
       <div className="fall-backdrop">
         <div className="fall-card" role="alertdialog" aria-modal="true" aria-labelledby="fall-res-title">
           <h2 id="fall-res-title">{result === 'confirmed' ? 'Help requested' : 'No response'}</h2>
-          <p className="muted">Caregiver alerts are <b>not set up yet</b>: they arrive with the cloud backend (milestone 6), which will send an email. Nothing has been sent.</p>
+          <p className="muted">This phone sends nothing itself. If your headset is set up for the cloud with a caregiver email, the headset reports this and the cloud emails your caregiver; the app cannot see whether that email arrived. Do not rely on it.</p>
           <p className="muted">If you or someone near you needs help, call them or local emergency services directly.</p>
           <p className="fine">The event is saved and appears in Trends.</p>
           <button className="btn primary" autoFocus onClick={() => setResult(null)}>Close</button>

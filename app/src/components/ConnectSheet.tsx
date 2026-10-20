@@ -3,6 +3,7 @@ import { gunzipToText, parseRecording } from '../logic/recording';
 import { live, useLive } from '../device/live';
 import { bleSupported, serialSupported, type SourceKind } from '../device/sources';
 import { useSettings } from '../state/settings';
+import { useFocusTrap } from './useFocusTrap';
 import { IconBluetooth, IconClose, IconPlay, IconReplay, IconUsb, IconWifi } from './icons';
 
 export default function ConnectSheet({ onClose }: { onClose: () => void }) {
@@ -11,6 +12,7 @@ export default function ConnectSheet({ onClose }: { onClose: () => void }) {
   const set = useSettings((s) => s.set);
   const dialog = useRef<HTMLDivElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  useFocusTrap(dialog);
   const [replayErr, setReplayErr] = useState<string | null>(null);
 
   const replay = async (load: () => Promise<Blob>, label: string) => {

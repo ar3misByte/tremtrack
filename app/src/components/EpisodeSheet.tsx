@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { useFocusTrap } from './useFocusTrap';
 import type { Episode } from '../logic/model';
 import { episodeScore } from '../logic/severity';
 import { SEVERITY, EPISODES } from '../config/thresholds';
@@ -8,6 +9,7 @@ import { IconClose } from './icons';
 
 export default function EpisodeSheet({ ep, onClose }: { ep: Episode; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
+  useFocusTrap(ref);
   useEffect(() => {
     const prev = document.activeElement as HTMLElement | null;
     ref.current?.querySelector<HTMLElement>('button')?.focus();

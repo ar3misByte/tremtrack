@@ -6,6 +6,8 @@
 // Needs: the app running (npm run dev) and tools/hostsim/bin/sim_cloud (npm run hostsim:cloud builds it).
 // Usage: node scripts/e2e-device.mjs [baseUrl]
 import { chromium } from 'playwright';
+import AxeBuilder from '@axe-core/playwright';
+import { fakeHeadset } from './fakeHeadset.mjs';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -24,36 +26,22 @@ const csv2 = join(root, 'tools/hostsim/out/e2e-compass.csv');
 execFileSync(exe, ['--scenario', 'compass_session', '--seed', '1', '--mag', '--mag-cal-at', '1', '--csv', csv2], { stdio: 'ignore' });
 const magLines = readFileSync(csv2, 'utf8').split('\n').map((l) => l.trim().slice(l.indexOf(',') + 1)).filter((l) => l.startsWith('$') || l.startsWith('# MAG')).slice(0, 1800);
 console.log(`${lines.length} real firmware lines to stream`);
+// a fall recorded from the real firmware
+const csv3 = join(root, 'tools/hostsim/out/e2e-fall.csv');
+execFileSync(exe, ['--scenario', 'fall', '--seed', '1', '--csv', csv3], { stdio: 'ignore' });
+const fallLines = readFileSync(csv3, 'utf8').split('\n').map((l) => l.trim().slice(l.indexOf(',') + 1)).filter((l) => l.startsWith('$'));
 
 let browser;
 const fail = async (m) => { console.error('FAIL: ' + m); await browser?.close(); process.exit(1); };
+const axe = async (page, name) => {
+  const r = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'best-practice']).analyze();
+  if (r.violations.length) await fail(`accessibility (${name}): ` + r.violations.map((v) => `${v.id} ${v.nodes[0].target.join(' ')}`).join('; '));
+  console.log(`accessibility: ${name} has no violations axe can detect`);
+};
+
 try {
   browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
-  const fakeHeadset = ({ lines }) => {
-    const enc = new TextEncoder(), dec = new TextDecoder();
-    const SERVICE = '6e400001-b5a3-f393-e0a9-e50e24dcca9e', RX = '6e400002-b5a3-f393-e0a9-e50e24dcca9e', TX = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
-    const tx = new EventTarget(), rx = {};
-    tx.startNotifications = async () => { started = true; return tx; };
-    let started = false, acc = '', i = 0;
-    window.__written = [];
-    const notify = (text) => { const b = enc.encode(text); for (let o = 0; o < b.length; o += 20) { const part = b.slice(o, o + 20); tx.value = new DataView(part.buffer); tx.dispatchEvent(new Event('characteristicvaluechanged')); } };
-    rx.writeValueWithoutResponse = async (v) => {
-      window.__written.push(v.length);
-      acc += dec.decode(v);
-      let n;
-      while ((n = acc.indexOf('\n')) >= 0) {
-        const cmd = acc.slice(0, n); acc = acc.slice(n + 1);
-        window.__cmds = [...(window.__cmds ?? []), cmd];
-        if (cmd === '!info') notify('# INFO fw=htm-0.7.0 name=HeadTremor-TEST wifi=unset ip=0.0.0.0 rssi=0 cloud=off time=no tz=330 ble=1 ws=0\n');
-      }
-    };
-    setInterval(() => { if (!started) return; do { notify(lines[i++ % lines.length] + '\n'); } while (!lines[(i - 1) % lines.length].startsWith('$')); }, 20);
-    const device = new EventTarget();
-    device.name = 'HeadTremor-TEST';
-    device.gatt = { connect: async () => ({ getPrimaryService: async (u) => { if (u !== SERVICE) throw new Error('bad service'); return { getCharacteristic: async (c) => (c === TX ? tx : c === RX ? rx : (() => { throw new Error('bad characteristic'); })()) }; } }), disconnect: () => {} };
-    Object.defineProperty(navigator, 'bluetooth', { value: { requestDevice: async (o) => { if (o.filters[0].services[0] !== SERVICE) throw new Error('wrong filter'); return device; } }, configurable: true });
-  };
   await ctx.addInitScript(fakeHeadset, { lines: lines.slice(0, 2400) });
   const page = await ctx.newPage();
   const errors = [];
@@ -101,11 +89,25 @@ try {
   await p2.getByText(/Calibrating: turn the headset slowly/).waitFor({ timeout: 15000 });
   await p2.getByRole('progressbar').waitFor();
   console.log('compass state 4: calibrating, progress bar shown');
+  await axe(p2, 'Settings with the Headset and Compass cards (calibrating)');
   await p2.getByText('Calibrated and keeping the yaw steady.').waitFor({ timeout: 30000 });
   await p2.getByText(/Last result: calibrated: (good|fair)/).waitFor({ timeout: 5000 });
   console.log('compass state 3: calibrated, result line shown');
   await p2.getByRole('button', { name: 'Forget calibration' }).click();
   await p2.waitForFunction(() => (window.__cmds ?? []).includes('!mag clear'), null, { timeout: 5000 });
+
+  // ---- phase 3: a fall seen over Bluetooth; the answer is forwarded to the headset (which tells the cloud) ----
+  const ctx3 = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  await ctx3.addInitScript(fakeHeadset, { lines: fallLines });
+  const p3 = await ctx3.newPage();
+  p3.on('pageerror', (e) => errors.push(e.message));
+  await p3.goto(base + '/#/live');
+  await p3.getByRole('button', { name: /Change connection/ }).click();
+  await p3.getByRole('button', { name: /Bluetooth/ }).click();
+  await p3.getByRole('alertdialog', { name: 'Possible fall detected' }).waitFor({ timeout: 40000 });
+  await p3.getByRole('button', { name: "I'm OK" }).click();
+  await p3.waitForFunction(() => (window.__cmds ?? []).includes('!fall cancelled'), null, { timeout: 5000 });
+  console.log('fall over Bluetooth: "I\'m OK" was forwarded to the headset as !fall cancelled');
   if (errors.length) await fail('page errors: ' + errors.join('; '));
   console.log('PASS');
 } catch (e) {

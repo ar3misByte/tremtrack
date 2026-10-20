@@ -60,3 +60,34 @@ jobs:
         run: |
           cp firmware/tremor_monitor/device_config.example.h firmware/tremor_monitor/device_config.h
           arduino-cli compile --fqbn esp32:esp32:esp32:PartitionScheme=huge_app --warnings default firmware/tremor_monitor
+
+  # Browser tests: the app in headless Chromium against the host simulator, a fake Bluetooth headset and the local
+  # mock of the cloud. (Written to match what runs locally; this job has not been seen green in CI yet.)
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Build the host simulator binaries the tests stream from
+        run: |
+          node tools/hostsim/run.mjs --check
+          npm run hostsim:cloud
+      - name: Start the app
+        run: |
+          nohup npm run dev -w app -- --port 5173 --strictPort > app.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf http://localhost:5173/ > /dev/null && exit 0; sleep 1; done
+          cat app.log; exit 1
+      - name: Accessibility audit (axe, every screen, normal and large text)
+        run: npm run a11y -w app
+      - name: Browser flows
+        run: |
+          npm run e2e:local -w app
+          npm run e2e:history -w app
+          npm run e2e:log -w app
+          npm run e2e:report -w app
+          npm run e2e:fall -w app
+          npm run e2e:device -w app
+          npm run e2e:cloud -w app

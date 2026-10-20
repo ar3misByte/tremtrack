@@ -137,6 +137,8 @@ class Recorder {
     if (!this.fall) return;
     const event: FallEvent = { ...this.fall.event, outcome, resolvedAt: Date.now(), caregiverAlert: outcome === 'cancelled' ? 'not-needed' : 'not-configured' };
     this.fall = null;
+    // the headset reports falls to the cloud itself; tell it how the countdown ended (it says "no-response" on its own after 40 s)
+    if (live.sourceKind === 'serial' || live.sourceKind === 'ble' || live.sourceKind === 'websocket') void live.sendCommand(`!fall ${outcome}`);
     this.lastFall = event;
     void saveBatch({ events: [event] }).catch((e) => { this.error = 'Could not save the fall event: ' + (e as Error).message; });
     this.emit();

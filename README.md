@@ -16,7 +16,7 @@ A prototype that tracks head tremor from a head-worn ESP32 + MPU6050, with heart
 | 6. AWS stack, provisioning, simulator to cloud, `docs/AWS_SETUP.md` | **done** (tested against local mocks; first real deployment pending, see below) |
 | 7. Firmware Bluetooth / Wi-Fi / MQTT, installable phone app, cloud sign-in, live cloud view, history, sync | **done** (compiles and is tested in simulators; **not yet run on a real board or a real AWS account**) |
 | 8. Compass (QMC5883P) yaw correction and calibration screen | **done** (same caveat) |
-| 9. Polish, accessibility, final docs, stage demo script | next |
+| 9. Polish, accessibility audit, final docs, stage demo script | **done** |
 
 ## On your phone (the goal)
 
@@ -85,6 +85,6 @@ npm run screenshots -w app                # docs/screenshots at phone and deskto
 firmware/   ESP32 sketch (Arduino IDE)          app/     React + Vite + three.js PWA
 tools/      hostsim (firmware on the host), devsim (stream simulator, MQTT), aws (provisioning, kill switch, cloud e2e)
 infra/      AWS CDK stack and Lambdas (TypeScript)
-docs/       PHONE_SETUP, ORIENTATION, ARCHITECTURE, TELEMETRY_PROTOCOL, SEVERITY, FALLS_POSTURE_VITALS, INSIGHTS_AND_MEDICATION, REPORT, DATA_MODEL, DETECTOR_BASELINE, HEAD_MODEL, PRIVACY, COSTS, AWS_SETUP
+docs/       PHONE_SETUP, DEMO_SCRIPT, ACCESSIBILITY, ORIENTATION, ARCHITECTURE, TELEMETRY_PROTOCOL, SEVERITY, FALLS_POSTURE_VITALS, INSIGHTS_AND_MEDICATION, REPORT, DATA_MODEL, DETECTOR_BASELINE, HEAD_MODEL, PRIVACY, COSTS, AWS_SETUP
 legacy/     the original sketch and page (read-only reference)
 ```

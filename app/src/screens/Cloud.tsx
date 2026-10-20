@@ -183,7 +183,7 @@ export default function Cloud() {
             <p className="fine">Removes everything stored for you in the cloud: telemetry, events, daily summaries and synced records. Data on this device is not touched. Devices are removed with the provisioning scripts.</p>
             {confirm === null && <div className="btn-row"><button className="btn sm" onClick={() => setConfirm('data')}>Delete cloud data…</button><button className="btn sm" onClick={() => setConfirm('account')}>Delete data and account…</button></div>}
             {confirm !== null && (
-              <div className="notice warn" role="alertdialog" aria-label="Confirm deletion">
+              <div className="notice warn stack" role="alertdialog" aria-label="Confirm deletion">
                 <span>{confirm === 'account' ? 'Delete all your cloud data and your account? This cannot be undone.' : 'Delete all your cloud data? This cannot be undone.'}</span>
                 <span className="btn-row">
                   <button className="btn sm" onClick={() => { const acct = confirm === 'account'; setConfirm(null); void cloud.deleteCloudData(acct); }}>Yes, delete</button>

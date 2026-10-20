@@ -68,7 +68,7 @@ export default function Settings() {
             ? <button className="btn sm" style={{ color: 'var(--accent-ink)', borderColor: 'var(--accent)' }} onClick={() => setConfirmAll(true)}>Delete all my data…</button>
             : (
               <div role="alertdialog" aria-labelledby="del-title" className="notice warn">
-                <p id="del-title"><b>Delete everything stored on this device?</b> Sessions, episodes, samples and settings. This cannot be undone. Export first if you want a copy. (Cloud data does not exist yet; cloud deletion is added in milestone 6.)</p>
+                <p id="del-title"><b>Delete everything stored on this device?</b> Sessions, episodes, samples and settings. This cannot be undone. Export first if you want a copy. Data in the cloud is separate: delete it on the Cloud screen.</p>
                 <div className="btn-row" style={{ marginTop: 'var(--s-3)' }}>
                   <button className="btn sm accent" onClick={async () => { await live.disconnect(); await deleteAllLocalData(); setConfirmAll(false); setMsg('All local data deleted.'); }}>Delete everything</button>
                   <button className="btn sm" onClick={() => setConfirmAll(false)}>Cancel</button>

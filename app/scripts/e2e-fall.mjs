@@ -27,6 +27,13 @@ try {
   console.log(`alert after ${((Date.now() - t0) / 1000).toFixed(1)} s`);
   const focused = await page.evaluate(() => document.activeElement?.textContent);
   if (focused !== "I'm OK") await fail(`"I'm OK" should have focus, got ${focused}`);
+  // the dialog is modal: Tab and Shift+Tab never leave it
+  for (const key of ['Tab', 'Tab', 'Tab', 'Shift+Tab', 'Shift+Tab', 'Shift+Tab']) {
+    await page.keyboard.press(key);
+    const inside = await page.evaluate(() => !!document.activeElement?.closest('[role="alertdialog"]'));
+    if (!inside) await fail(`focus left the fall dialog after ${key}`);
+  }
+  console.log('focus stays inside the fall dialog with Tab / Shift+Tab');
   await page.getByRole('button', { name: "I'm OK" }).click();
   await page.getByRole('button', { name: 'Get up' }).click();
   await page.waitForTimeout(17000);      // past the 15 s cooldown, which starts when the first fall is confirmed (about 2.5 s after the impact)

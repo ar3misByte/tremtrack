@@ -4,6 +4,7 @@
 //   -> sync a tag -> delete the cloud data
 // Needs the app running (npm run dev). Run with:  node --import tsx scripts/e2e-cloud.mjs [baseUrl]
 import { chromium } from 'playwright';
+import AxeBuilder from '@axe-core/playwright';
 import { startCloudMock } from '../../tools/devsim/src/cloudmock.ts';
 import { startMqtt } from '../../tools/devsim/src/mqtt.ts';
 import { encodeConfig } from '../src/cloud/config.ts';
@@ -20,6 +21,12 @@ const cleanup = async () => {
   await mock.close();
 };
 const fail = async (m) => { if (pageRef) console.error('--- page ---\n' + pageRef.url() + '\n' + (await pageRef.evaluate(() => document.body.innerText.slice(0, 700)).catch(() => '')) + '\n' + (pageRef.__errors ?? []).join('\n')); console.error('FAIL: ' + m + '\n--- headset log ---\n' + deviceLog.slice(-8).join('\n')); await cleanup(); process.exit(1); };
+
+const axe = async (page, name) => {
+  const r = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'best-practice']).analyze();
+  if (r.violations.length) await fail(`accessibility (${name}): ` + r.violations.map((v) => `${v.id} ${v.nodes[0].target.join(' ')}`).join('; '));
+  console.log(`accessibility: ${name} has no violations axe can detect`);
+};
 
 try {
   browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
@@ -59,6 +66,7 @@ try {
   await page.getByText(/Possible fall .*the wearer said they are OK/).waitFor();
   await page.getByText(/Tremor episode, 30 s/).first().waitFor();
   console.log('30-day chart, a fall and tremor episodes are shown from the cloud');
+  await axe(page, 'signed-in Cloud screen');
 
   // 4. live view through the cloud
   await page.getByRole('button', { name: 'Watch live' }).click();

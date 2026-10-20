@@ -42,7 +42,7 @@ export default function HeadsetCard() {
           {snap.source === 'demo' || snap.source === 'replay' ? ' Demo and replay have no headset.' : ''}</p>
       )}
       {ready && !info && <p className="fine">Asking the headset for its status… <button className="btn sm" onClick={() => void live.refreshInfo()}>Ask again</button><br />
-        Older firmware (before milestone 7) does not answer; it still streams normally.</p>}
+        Firmware older than this app does not answer; it still streams normally.</p>}
       {ready && info && (
         <dl className="kv" aria-label="Headset status">
           <div><dt>Name</dt><dd>{info.name || '–'}</dd></div>
@@ -83,7 +83,7 @@ export default function HeadsetCard() {
           <div className="card-title"><span>Compass</span></div>
           <p className="fine" role="status">{COMPASS[mag] ?? 'Unknown compass state.'}{mag === 4 && progress ? ` ${progress}% of a full turn done.` : ''}</p>
           {magResult && mag !== 4 && <p className="fine">Last result: {magResult.replace(/^MAG /, '')}</p>}
-          {mag === 4 && <div className="bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Number(progress ?? 0)}><i style={{ width: `${progress ?? 0}%` }} /></div>}
+          {mag === 4 && <div className="bar" role="progressbar" aria-label="Compass calibration progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Number(progress ?? 0)}><i style={{ width: `${progress ?? 0}%` }} /></div>}
           <div className="btn-row" style={{ marginTop: 'var(--s-2)' }}>
             {mag !== 0 && mag !== 4 && <button className="btn sm" onClick={() => void live.sendCommand('!mag start')}>{mag === 1 ? 'Calibrate compass' : 'Calibrate again'}</button>}
             {mag === 4 && <button className="btn sm" onClick={() => void live.sendCommand('!mag stop')}>Cancel</button>}
