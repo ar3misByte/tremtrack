@@ -96,6 +96,29 @@ try {
   await p2.getByRole('button', { name: 'Forget calibration' }).click();
   await p2.waitForFunction(() => (window.__cmds ?? []).includes('!mag clear'), null, { timeout: 5000 });
 
+  // ---- phase 2b: Orientation card on the Live screen (reverse a direction, mount the board differently) ----
+  await p2.goto(base + '/#/live');
+  await p2.getByText('Orientation', { exact: true }).waitFor();
+  await p2.getByText('Board mounted differently? Say how it sits on the head').click();
+  await p2.getByLabel('Common mountings').selectOption({ label: 'Standing on its edge: X to the right, Y down, Z forward' });
+  await p2.getByRole('button', { name: 'Apply to the headset' }).click();
+  await p2.waitForFunction(() => (window.__cmds ?? []).includes('!orient +x +z -y'), null, { timeout: 5000 });
+  console.log('mounting "standing on its edge" was sent as !orient +x +z -y');
+  await p2.getByLabel('Sensor X arrow points').selectOption('right');
+  await p2.getByLabel('Sensor Y arrow points').selectOption('left');
+  await p2.getByText(/cannot point along the same line/).waitFor();
+  if (!(await p2.getByRole('button', { name: 'Apply to the headset' }).isDisabled())) await fail('an impossible mounting must not be sendable');
+  await p2.getByLabel('Sensor Y arrow points').selectOption('forward');
+  await p2.getByLabel('Sensor Z arrow points').selectOption('down');
+  await p2.getByText(/right-handed/).waitFor();
+  console.log('impossible mountings are refused with a reason');
+  await p2.getByRole('button', { name: 'Reset to default' }).click();
+  await p2.getByRole('checkbox', { name: 'Reverse' }).first().check();
+  const stored = await p2.evaluate(() => JSON.parse(localStorage.getItem('htm.settings.v1')).state.mapping);
+  if (!stored.flipPitch) await fail('Reverse up/down was not stored');
+  console.log('Reverse up/down is stored; the picture follows it');
+  await axe(p2, 'Live screen with the Orientation card open');
+
   // ---- phase 3: a fall seen over Bluetooth; the answer is forwarded to the headset (which tells the cloud) ----
   const ctx3 = await browser.newContext({ viewport: { width: 390, height: 844 } });
   await ctx3.addInitScript(fakeHeadset, { lines: fallLines });

@@ -159,6 +159,37 @@ void setSensitivity(int lvl) {
 volatile int  cmdSens = 0;
 volatile bool cmdRecenter = false;
 volatile int cmdMag = 0;               // 1 start compass calibration, 2 cancel, 3 forget it
+
+// ----------------------------- Mounting: how the board sits on the head -----------------------------
+// The detector's axes are the HEAD's: X to the right, Y forward (the face), Z up. If the board is mounted another way,
+// `!orient +y -x +z` says which board axis (with sign) supplies head X, Y and Z, and every sensor reading is remapped
+// before anything else sees it. A real mounting is a rotation, so the signed permutation must have determinant +1.
+int8_t orSrc[3] = { 0, 1, 2 };           // head axis i reads board axis orSrc[i] ...
+int8_t orSgn[3] = { 1, 1, 1 };           // ... times orSgn[i]
+volatile bool cmdOrient = false;
+int8_t pendSrc[3], pendSgn[3];
+volatile bool zuptOn = true;             // learn the gyro bias while the head is still (turn off with "!zupt off" for tests)
+bool parseOrient(const char *p, int8_t src[3], int8_t sgn[3]) {
+  int used = 0;
+  for (int i = 0; i < 3; i++) {
+    while (*p == ' ') p++;
+    if ((*p != '+' && *p != '-') || (p[1] != 'x' && p[1] != 'y' && p[1] != 'z')) return false;
+    sgn[i] = (*p == '+') ? 1 : -1;
+    src[i] = (int8_t)(p[1] - 'x');
+    if (used & (1 << src[i])) return false;           // each board axis can be used once
+    used |= 1 << src[i];
+    p += 2;
+  }
+  int inv = 0;
+  for (int i = 0; i < 3; i++) for (int j = i + 1; j < 3; j++) if (src[i] > src[j]) inv++;
+  return ((inv & 1) ? -1 : 1) * sgn[0] * sgn[1] * sgn[2] == 1;   // a rotation, not a mirror image
+}
+const char *htmOrient() {
+  static char b[8];
+  for (int i = 0; i < 3; i++) { b[2 * i] = orSgn[i] > 0 ? '+' : '-'; b[2 * i + 1] = (char)('x' + orSrc[i]); }
+  b[6] = 0;
+  return b;
+}
 bool htmCoreCommand(const char *line) {
   if (line[0] >= '1' && line[0] <= '5' && (line[1] == 0 || line[1] == '\n' || line[1] == '\r')) { cmdSens = line[0] - '0'; return true; }
   if (!strncmp(line, "!sens ", 6) && line[6] >= '1' && line[6] <= '5') { cmdSens = line[6] - '0'; return true; }
@@ -166,6 +197,13 @@ bool htmCoreCommand(const char *line) {
   if (!strcmp(line, "!mag start")) { cmdMag = 1; return true; }
   if (!strcmp(line, "!mag stop")) { cmdMag = 2; return true; }
   if (!strcmp(line, "!mag clear")) { cmdMag = 3; return true; }
+  if (!strncmp(line, "!orient ", 8)) {
+    if (parseOrient(line + 8, pendSrc, pendSgn)) cmdOrient = true;
+    else htmLinkStatus("ORIENT invalid: use three signed axes, each of x y z once, e.g. !orient +x +y +z (a rotation, not a mirror)");
+    return true;
+  }
+  if (!strcmp(line, "!zupt off")) { zuptOn = false; return true; }
+  if (!strcmp(line, "!zupt on")) { zuptOn = true; return true; }
   return false;
 }
 const uint32_t ANALYSIS_MS = 100;
@@ -300,10 +338,12 @@ bool readMPU(float a[3], float g[3]) {
     uint8_t lo = Wire.read();
     v[i] = (int16_t)((hi << 8) | lo);
   }
+  float ra[3], rg[3];
   for (int i = 0; i < 3; i++) {
-    a[i] = v[i] / ACC_LSB_PER_G;                     // v[3] is temperature, skipped
-    g[i] = v[4 + i] / GYRO_LSB_PER_DPS;
+    ra[i] = v[i] / ACC_LSB_PER_G;                    // v[3] is temperature, skipped
+    rg[i] = v[4 + i] / GYRO_LSB_PER_DPS;
   }
+  for (int i = 0; i < 3; i++) { a[i] = orSgn[i] * ra[orSrc[i]]; g[i] = orSgn[i] * rg[orSrc[i]]; }   // board axes -> head axes
   return true;
 }
 
@@ -817,7 +857,8 @@ bool magRead(float b[3]) {
 #if HTM_MAG_SWAP_XY
   { float t = x; x = y; y = t; }
 #endif
-  b[0] = HTM_MAG_FLIP_X ? -x : x; b[1] = HTM_MAG_FLIP_Y ? -y : y; b[2] = HTM_MAG_FLIP_Z ? -z : z;
+  const float rm[3] = { HTM_MAG_FLIP_X ? -x : x, HTM_MAG_FLIP_Y ? -y : y, HTM_MAG_FLIP_Z ? -z : z };
+  for (int i = 0; i < 3; i++) b[i] = orSgn[i] * rm[orSrc[i]];       // same mounting as the MPU6050
   return true;
 }
 #ifndef HTM_HOSTSIM
@@ -828,6 +869,22 @@ void magLoad() { Preferences p; p.begin("htmmag", true); if (p.getBytesLength("c
 void magSave() {}
 void magForget() {}
 void magLoad() {}
+#endif
+#ifndef HTM_HOSTSIM
+void orientSave() { Preferences p; p.begin("htmori", false); p.putBytes("src", orSrc, 3); p.putBytes("sgn", orSgn, 3); p.end(); }
+void orientLoad() {
+  Preferences p; p.begin("htmori", true);
+  int8_t src[3], sgn[3];
+  if (p.getBytesLength("src") == 3 && p.getBytesLength("sgn") == 3) {
+    p.getBytes("src", src, 3); p.getBytes("sgn", sgn, 3);
+    char t[16]; snprintf(t, sizeof t, "%c%c %c%c %c%c", sgn[0] > 0 ? '+' : '-', 'x' + src[0], sgn[1] > 0 ? '+' : '-', 'x' + src[1], sgn[2] > 0 ? '+' : '-', 'x' + src[2]);
+    if (parseOrient(t, src, sgn)) for (int i = 0; i < 3; i++) { orSrc[i] = src[i]; orSgn[i] = sgn[i]; }
+  }
+  p.end();
+}
+#else
+void orientSave() {}
+void orientLoad() {}
 #endif
 int htmMagState() { return compass.calibrating ? 4 : compass.quality; }
 
@@ -895,6 +952,7 @@ void setup() {
   } else {
     Serial.println("# MAX30102 not found at 0x57: heart rate and SpO2 disabled");
   }
+  orientLoad();
   compass.present = magBegin();
   compass.quality = compass.present ? 1 : 0;
   if (compass.present) { magLoad(); Serial.printf("# QMC5883P compass OK (%s)\n", compass.calibrated ? "calibrated" : "not calibrated: send !mag start, see docs/ORIENTATION.md"); }
@@ -925,6 +983,19 @@ void loop() {
     float mag  = sqrtf(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]);
     if (mag > lineAMax) lineAMax = mag;
     if (mag < lineAMin) lineAMin = mag;
+    // Zero-rate update: while the head is still, slowly learn the gyro's bias. A start-up calibration of two seconds leaves a
+    // small error, and temperature moves it afterwards; uncorrected it shows up as the yaw creeping round at a steady rate.
+    {
+      static float gm[3] = { 0, 0, 0 }, act = 0; static int stillTicks = 0;
+      float dev = 0;
+      for (int k = 0; k < 3; k++) { gm[k] += 0.01f * (g[k] - gm[k]); dev += fabsf(g[k] - gm[k]); }   // 1 s mean; deviation from it = activity
+      act += 0.02f * (dev - act);
+      bool near = true;
+      for (int k = 0; k < 3; k++) if (fabsf(gm[k] - gyroBias[k]) > 1.0f) near = false;        // a real slow turn is not "bias"
+      bool quiet = act < 1.0f && fabsf(mag - 1.0f) < 0.03f && near && (millis() - bootMs) > 3000;
+      stillTicks = quiet ? stillTicks + 1 : 0;
+      if (zuptOn && stillTicks > 150) for (int k = 0; k < 3; k++) gyroBias[k] += 0.003f * (gm[k] - gyroBias[k]);
+    }
     float corr = (fabsf(mag - 1.0f) < 0.25f) ? (1.0f - ALPHA) : 0.0f;   // trust accel only when ~1 g
     angP = (angP + (g[0] - gyroBias[0]) * DT) * (1.0f - corr) + accP * corr;
     angR = (angR + (g[1] - gyroBias[1]) * DT) * (1.0f - corr) + accR * corr;
@@ -966,6 +1037,16 @@ void loop() {
     setSensitivity(lvl);
     htmLinkStatus("Sensitivity %d", sensLevel);
     htmLinkSensitivity(sensLevel);
+  }
+  if (cmdOrient) {
+    cmdOrient = false;
+    for (int i = 0; i < 3; i++) { orSrc[i] = pendSrc[i]; orSgn[i] = pendSgn[i]; }
+    orientSave();
+    htmLinkStatus("ORIENT %c%c %c%c %c%c: keep the headset still for 2 seconds", orSgn[0] > 0 ? '+' : '-', 'x' + orSrc[0], orSgn[1] > 0 ? '+' : '-', 'x' + orSrc[1], orSgn[2] > 0 ? '+' : '-', 'x' + orSrc[2]);
+    calibrate();                                     // the axes just changed: bias, angles and noise floor are measured again
+    compass.reanchor();
+    bootMs = millis(); nextUs = micros();
+    htmLinkStatus("ORIENT applied");
   }
   if (cmdRecenter) { cmdRecenter = false; yawDeg = 0; compass.reanchor(); htmLinkStatus("Yaw recentred"); }
   if (cmdMag) {

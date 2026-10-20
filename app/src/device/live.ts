@@ -3,7 +3,7 @@
 import { useSyncExternalStore } from 'react';
 import { parseLine, type Frame } from '../logic/csv';
 import { analyzeCombined, type ComboResult } from '../logic/multiaxis';
-import { applyMapping, Exaggerator, relativeTo, type Euler3 } from '../logic/orientation';
+import { applyMapping, Exaggerator, relativeTo, YawHold, type Euler3 } from '../logic/orientation';
 import { DEFAULT_CONTROLS, type DemoControls } from '../logic/demoGen';
 import { useSettings } from '../state/settings';
 import { DemoSource, SerialSource, WebSocketSource, BleSource, ReplaySource, type ConnState, type DeviceSource, type SourceKind } from './sources';
@@ -14,11 +14,11 @@ export type FrameHook = (f: Frame, t: number) => void;
 export type ConnHook = (kind: SourceKind | null, state: ConnState) => void;
 
 /** What the firmware reports about itself ('# INFO key=value ...' line, requested with the !info command). */
-export interface DeviceInfo { fw: string; name: string; wifi: string; ip: string; rssi: number; cloud: string; time: string; tz: number; at: number }
+export interface DeviceInfo { fw: string; name: string; wifi: string; ip: string; rssi: number; cloud: string; time: string; tz: number; orient: string; at: number }
 export function parseInfo(text: string, now = Date.now()): DeviceInfo | null {
   if (!text.startsWith('INFO ')) return null;
   const kv = Object.fromEntries(text.slice(5).split(/\s+/).map((p) => p.split('=') as [string, string]).filter((p) => p.length === 2));
-  return { fw: kv.fw ?? '', name: kv.name ?? '', wifi: kv.wifi ?? '', ip: kv.ip ?? '', rssi: Number(kv.rssi ?? 0), cloud: kv.cloud ?? '', time: kv.time ?? '', tz: Number(kv.tz ?? 0), at: now };
+  return { fw: kv.fw ?? '', name: kv.name ?? '', wifi: kv.wifi ?? '', ip: kv.ip ?? '', rssi: Number(kv.rssi ?? 0), cloud: kv.cloud ?? '', time: kv.time ?? '', tz: Number(kv.tz ?? 0), orient: kv.orient ?? '', at: now };
 }
 
 export const RING = 250;                       // 5 s at 50 Hz
@@ -57,6 +57,8 @@ class Live {
   private zero: Euler3 = { pitch: 0, roll: 0, yaw: 0 };
   private needZero = true;
   private ex = new Exaggerator();
+  private hold = new YawHold();
+  private lastFrameMs = 0;
   private source: DeviceSource | null = null;
   private conn: ConnState = 'idle';
   private message = '';
@@ -105,6 +107,12 @@ class Live {
 
     const s = useSettings.getState();
     const raw = applyMapping({ pitch: f.pitch, roll: f.roll, yaw: f.yaw }, s.mapping);
+    // a real headset without a compass drifts slowly in yaw: remove drift while the head is still
+    const k = this.source?.kind;
+    const nowMs = performance.now();
+    const dt = this.lastFrameMs ? Math.min(0.2, Math.max(0.005, (nowMs - this.lastFrameMs) / 1000)) : 0.02;
+    this.lastFrameMs = nowMs;
+    if (s.holdYaw && (k === 'serial' || k === 'ble' || k === 'websocket')) raw.yaw -= this.hold.step(raw.yaw, dt);
     if (this.needZero) { this.zero = { pitch: 0, roll: 0, yaw: raw.yaw }; this.needZero = false; this.ex.reset(); }
     this.disp = this.ex.step(relativeTo(raw, this.zero), s.exaggeration);
     const now = Date.now();
@@ -124,6 +132,8 @@ class Live {
     const f = this.frame;
     if (!f) { this.needZero = true; return; }
     this.zero = applyMapping({ pitch: f.pitch, roll: f.roll, yaw: f.yaw }, useSettings.getState().mapping);
+    const k = this.source?.kind;
+    if (useSettings.getState().holdYaw && (k === 'serial' || k === 'ble' || k === 'websocket')) this.zero.yaw -= this.hold.offset;   // the picture's yaw has this drift removed already
     this.ex.reset();
   }
 
@@ -139,6 +149,7 @@ class Live {
       : new DemoSource(() => this.demo, (l) => { this.demoLabel = l; }, (a) => { void import('../data/demoActions').then((m) => m.runDemoAction(a)); }));
     this.source = src;
     this.needZero = true;
+    this.hold.reset(); this.lastFrameMs = 0;
     this.demoLabel = '';
     this.replayLabel = kind === 'replay' ? replay?.label ?? '' : '';
     try {

@@ -7,7 +7,7 @@ export const fakeHeadset = ({ lines }) => {
   const SERVICE = '6e400001-b5a3-f393-e0a9-e50e24dcca9e', RX = '6e400002-b5a3-f393-e0a9-e50e24dcca9e', TX = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
   const tx = new EventTarget(), rx = {};
   tx.startNotifications = async () => { started = true; return tx; };
-  let started = false, acc = '', i = 0;
+  let started = false, acc = '', i = 0, orient = '+x+y+z';
   window.__written = [];
   const notify = (text) => { const b = enc.encode(text); for (let o = 0; o < b.length; o += 20) { const part = b.slice(o, o + 20); tx.value = new DataView(part.buffer); tx.dispatchEvent(new Event('characteristicvaluechanged')); } };
   rx.writeValueWithoutResponse = async (v) => {
@@ -17,7 +17,8 @@ export const fakeHeadset = ({ lines }) => {
     while ((n = acc.indexOf('\n')) >= 0) {
       const cmd = acc.slice(0, n); acc = acc.slice(n + 1);
       window.__cmds = [...(window.__cmds ?? []), cmd];
-      if (cmd === '!info') notify('# INFO fw=htm-0.7.0 name=HeadTremor-TEST wifi=unset ip=0.0.0.0 rssi=0 cloud=off time=no tz=330 ble=1 ws=0\n');
+      if (cmd.startsWith('!orient ')) orient = cmd.slice(8).replace(/ /g, '');
+        if (cmd === '!info') notify(`# INFO fw=htm-0.8.0 name=HeadTremor-TEST wifi=unset ip=0.0.0.0 rssi=0 cloud=off time=no tz=330 ble=1 ws=0 mag=1 orient=${orient}\n`);
     }
   };
   setInterval(() => { if (!started) return; do { notify(lines[i++ % lines.length] + '\n'); } while (!lines[(i - 1) % lines.length].startsWith('$')); }, 20);

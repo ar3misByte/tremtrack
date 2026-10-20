@@ -99,6 +99,8 @@ Live view from anywhere, history in your own AWS account, caregiver alerts by em
 | The page will not install | It must be https, and not in a private tab. Chrome: ⋮ → *Install app*. |
 | Compass says *Not fitted* | Check the wiring (0x2C). The QMC5883P is a different chip from the older QMC5883L / HMC5883L; those use other addresses and are not supported. |
 | Compass calibration is refused | Read the message: *turn about the vertical axis* (flat, not tilted), *field strength varied* (steel nearby), or *axes do not match* (the board is mounted on its side, see `docs/ORIENTATION.md`). |
+| The head slowly turns by itself while I sit still | Update the firmware (it now learns the gyro's drift while you are still) and keep **Keep the head steady when it is still** ticked on the Live screen's Orientation card. A compass removes the rest. |
+| The head moves the wrong way, or nodding moves it sideways | Live → **Orientation**: tick **Reverse** for a direction that is backwards; if the board is stuck on differently, open **Board mounted differently?**, say which way the sensor's X, Y, Z arrows point, and **Apply to the headset**. See `ORIENTATION.md`. |
 | Yaw seems mirrored after calibrating | Fine: it is detected automatically. Otherwise set `HTM_MAG_FLIP_*` in `mag.h` and re-flash. |
 
 **First real-hardware checks worth doing, in this order:** USB serial still streams as before; Bluetooth connects; Settings → Headset shows the name and firmware; the tremor alert fires when you shake the headset at about 5 Hz; Wi-Fi setup; compass calibration. If a step fails, the serial monitor lines and the app's *Messages from the headset* are the first things to send me.

@@ -3,6 +3,7 @@ import { live, useLive, type LiveSnapshot } from '../device/live';
 import { axesOf, type Axis } from '../logic/csv';
 import { useSettings, thresholds } from '../state/settings';
 import Circle2D from '../components/Circle2D';
+import OrientationCard from '../components/OrientationCard';
 import { PulseTrace, Waveform } from '../components/Traces';
 import { IconCircle, IconCube, IconRecenter } from '../components/icons';
 import { recorder, useRecorder } from '../data/recorder';
@@ -20,7 +21,7 @@ function headline(s: LiveSnapshot): { title: string; sub: string; tone: 'alert' 
   const f = s.frame;
   if (!s.fresh || !f) {
     if (s.conn === 'open' || s.conn === 'connecting') return { title: 'Waiting for data', sub: s.message || 'The board calibrates for about 2 seconds after it starts. Keep it still.', tone: 'quiet' };
-    return { title: 'Not connected', sub: 'Connect the headset, or try demo mode.', tone: 'quiet' };
+    return { title: 'Not connected', sub: 'Connect the headset to start.', tone: 'quiet' };
   }
   if (s.tremorActive) {
     const axes = axesOf(f.axes);
@@ -124,9 +125,9 @@ export default function Live({ onConnect }: { onConnect: () => void }) {
         </section>
         {s.source === 'demo' && <DemoCard label={s.demoLabel} />}
         {s.source === 'replay' && <p className="notice">Replaying: {s.replayLabel}. Recorded data, not live.</p>}
+        <OrientationCard />
         <DisplayCard canSend={s.canSend} />
         <RecordCard s={s} />
-        <HowComputed />
       </div>
     </div>
   );
@@ -306,7 +307,6 @@ function DemoCard({ label }: { label: string }) {
 
 function DisplayCard({ canSend }: { canSend: boolean }) {
   const st = useSettings();
-  const m = st.mapping;
   return (
     <section className="card" aria-label="Display and detection">
       <div className="card-title"><span>Display and detection</span></div>
@@ -339,15 +339,6 @@ function DisplayCard({ canSend }: { canSend: boolean }) {
         </select>
         <p className="fine">{canSend ? 'Raise it if real shaking is missed, lower it if ordinary movement is flagged.' : 'Connect a device to change this.'}</p>
       </div>
-      <details className="disclosure">
-        <summary>Axis mapping (how the board sits on the head)</summary>
-        <div className="body">
-          <label className="check"><input type="checkbox" checked={m.flipPitch} onChange={(e) => st.set({ mapping: { ...m, flipPitch: e.target.checked } })} /> Flip nod</label>
-          <label className="check"><input type="checkbox" checked={m.flipRoll} onChange={(e) => st.set({ mapping: { ...m, flipRoll: e.target.checked } })} /> Flip tilt</label>
-          <label className="check"><input type="checkbox" checked={m.flipYaw} onChange={(e) => st.set({ mapping: { ...m, flipYaw: e.target.checked } })} /> Flip turn</label>
-          <label className="check"><input type="checkbox" checked={m.swapPitchRoll} onChange={(e) => st.set({ mapping: { ...m, swapPitchRoll: e.target.checked } })} /> Swap nod and tilt (board turned 90°)</label>
-        </div>
-      </details>
     </section>
   );
 }
@@ -372,24 +363,6 @@ function RecordCard({ s }: { s: LiveSnapshot }) {
           ? <button className="btn accent sm" onClick={stop} disabled={busy}>Stop and download</button>
           : <button className="btn sm" onClick={() => live.startRawRecording()} disabled={!s.fresh}>Start recording</button>}
       </div>
-    </section>
-  );
-}
-
-function HowComputed() {
-  return (
-    <section className="card flat">
-      <details className="disclosure" style={{ borderTop: 0, marginTop: 0, paddingTop: 0 }}>
-        <summary>How this is computed</summary>
-        <div className="body">
-          <p><b>Orientation.</b> The board's gyroscope and accelerometer are blended (complementary filter) into nod and tilt angles. Turn is integrated from the gyroscope only, so it drifts slowly: use Recenter.</p>
-          <p><b>Tremor.</b> Every 0.1 s the board looks at the last 1.5 s of motion on each axis. An alert needs all of: strong motion between 3.5 and 8.5 Hz, most of the energy in that band, shaking across the whole window, and at least 4 evenly spaced, repeating cycles. It takes about 1.7 s to raise an alert.</p>
-          <p><b>Several axes at once.</b> When another axis (for example "yes-yes" alongside "no-no") passes the same tests on its own and is at least 30 % as strong, it is reported too. The app then compares the two signals: in step = diagonal, a quarter cycle apart = circular, different frequencies = two separate rhythms.</p>
-          <p><b>Walking.</b> Step bounce has harmonics inside the tremor band. While a step rhythm is detected, motion at a multiple of the step rate is ignored and a stronger signal is needed. A real tremor at exactly a step harmonic can't be told apart while walking.</p>
-          <p><b>Heart rate and SpO₂.</b> From the red and infrared light of a hobby sensor. SpO₂ uses a generic curve and is not calibrated. "Resting" values only use readings taken after several minutes of keeping still.</p>
-          <p>This is a prototype for demonstration. It does not diagnose anything and has not been clinically validated.</p>
-        </div>
-      </details>
     </section>
   );
 }

@@ -230,6 +230,10 @@ struct Motion {
 
 Motion M;
 
+// ---------- how the simulated board sits on the head (--mount "+y,-x,+z"): raw[src[i]] = sgn[i] * head[i] ----------
+int mountSrc[3] = { 0, 1, 2 }, mountSgn[3] = { 1, 1, 1 };
+template <class T> void mountVec(T v[3]) { T h[3] = { v[0], v[1], v[2] }; for (int i = 0; i < 3; i++) v[mountSrc[i]] = (T)(mountSgn[i] * h[i]); }
+
 // ---------- synthetic MPU6050 ----------
 struct Mpu6050 : I2CDevice {
   uint8_t regs[128] = {};
@@ -267,6 +271,7 @@ struct Mpu6050 : I2CDevice {
       double p = ac[0] * D2R, r = ac[1] * D2R;
       double gv[3] = { -sin(r), sin(p) * cos(r), cos(p) * cos(r) };
       for (int k = 0; k < 3; k++) acc[k] = gv[k] * (gc + vc) + 0.003 * nd(rng);
+      mountVec(gyro); mountVec(acc);                      // the sensor reports its own axes
       double mag = sqrt(acc[0] * acc[0] + acc[1] * acc[1] + acc[2] * acc[2]);
       maxAccDemand = std::max(maxAccDemand, mag);
       static const double ALSB[4] = { 16384, 8192, 4096, 2048 }, GLSB[4] = { 131, 65.5, 32.8, 16.4 };
@@ -317,6 +322,7 @@ struct Qmc5883p : I2CDevice {
       if (swapXY) std::swap(x, y);
       if (rotYZ) { double ny = z, nz = -y; y = ny; z = nz; }
       double vals[3] = { x, y, z };
+      mountVec(vals);
       for (int k = 0; k < 3; k++) {
         double lsb = std::round((vals[k] * sc[k]) * 3750.0 + off[k] + 7.5 * nd(rng));
         lsb = std::max(-32768.0, std::min(32767.0, lsb));
@@ -377,6 +383,7 @@ std::vector<Scenario> scenarios() {
   { Scenario s; s.name = "crosstalk_no_15deg"; s.desc = "Pure no-no 5 Hz 12 dps, board tilted 15 deg (26 % leaks into pitch): must stay single-axis"; s.dur = 50; s.crossTalk = 0.26; s.tremors = { { 2, 5.0, 12, 10, 40 } }; add(s); }
   { Scenario s; s.name = "fall"; s.desc = "Still, free fall 0.35 s, ~9 g impact, lying still"; s.dur = 30; s.fall = true; s.fallT = 10; add(s); }
   { Scenario s; s.name = "compass_session"; s.desc = "Compass calibration turns (0-26 s), then random head turns and sitting still (150 s); use with --mag"; s.dur = 150; s.rotate = true; s.turns = true; s.turnsFrom = 30; s.biasRamp = 0.004; add(s); }
+  { Scenario s; s.name = "drift_still"; s.desc = "Sitting still for 150 s while the yaw gyro drifts (bias ramp 0.005 dps/s): the zero-rate update must keep the yaw put"; s.dur = 150; s.biasRamp = 0.005; add(s); }
   { Scenario s; s.name = "showcase"; s.desc = "Demo recording: still, no-no tremor, walking, yes-yes + no-no together, finger off, a fall (130 s)"; s.dur = 130;
     s.walk = true; s.stepHz = 1.9; s.walkT0 = 36; s.walkT1 = 56; s.coherent = true;
     s.tremors = { { 2, 5.2, 12, 10, 28 }, { 2, 4.8, 12, 62, 78 }, { 0, 4.8, 9, 62, 78 } }; s.fingerOff0 = 88; s.fingerOff1 = 100;
@@ -397,7 +404,7 @@ struct Frame { double t; std::vector<double> f; };
 // =====================================================================================
 int main(int argc, char **argv) {
   using namespace hostsim;
-  std::string name, csvPath, cloudPath, magReport;
+  std::string name, csvPath, cloudPath, magReport, sendText;
   bool magOn = false, magMirror = false, magSwap = false, magRot = false;
   double magCalAt = -1, magDist[5] = { -1, -1, 0, 0, 0 };
   unsigned seed = 1;
@@ -411,6 +418,11 @@ int main(int argc, char **argv) {
     else if (a == "--sens") sens = std::stoi(next());
     else if (a == "--csv") csvPath = next();
     else if (a == "--cloud") cloudPath = next();
+    else if (a == "--send") { sendText = next(); size_t p; while ((p = sendText.find("\\n")) != std::string::npos) sendText.replace(p, 2, "\n"); }   // text typed into the serial port at start-up
+    else if (a == "--mount") {                               // "+y,-x,+z": head X, Y, Z are read from these board axes
+      std::string v = next(); int k = 0;
+      for (size_t i = 0; i + 1 < v.size() && k < 3; i += 3, k++) { mountSgn[k] = v[i] == '-' ? -1 : 1; mountSrc[k] = v[i + 1] - 'x'; }
+    }
     else if (a == "--mag") magOn = true;                     // a QMC5883P is fitted
     else if (a == "--mag-mirror") magMirror = true;          // its Y axis points the other way
     else if (a == "--mag-swap") magSwap = true;              // its X and Y are swapped (a mirror image too)
@@ -446,6 +458,7 @@ int main(int argc, char **argv) {
 #endif
   setup();
   if (sens != 2) { Serial.rx.push_back((char)('0' + sens)); }
+  for (char c : sendText) Serial.rx.push_back(c);
 
   const double END = WARM + sc.dur;
   std::vector<Frame> frames;

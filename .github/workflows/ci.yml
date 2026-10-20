@@ -43,6 +43,8 @@ jobs:
         run: npm run hostsim:cloud
       - name: Compass (calibration, drift, disturbance, mirrored mounting)
         run: node tools/hostsim/compass-check.mjs
+      - name: Board mounting (!orient) and drift while still (!zupt)
+        run: node tools/hostsim/orient-check.mjs
 
   firmware-compile:
     runs-on: ubuntu-latest

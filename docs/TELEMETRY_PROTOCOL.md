@@ -61,12 +61,14 @@ $,12.3,-4.5,30.1,6.10,-0.50,8.75,1,2,7.2,0.3,9.8,5.5,0.82,0,0.00,7,74,97,3,-12.4
 |---|---|---|
 | `1`…`5` | tremor sensitivity (1 strict, 2 default, 5 very sensitive) | `# Sensitivity N` |
 | `!sens N` | the same, as a line | `# Sensitivity N` |
-| `!info` | ask for the device's state | `# INFO fw=… name=… wifi=up\|down\|unset ip=… rssi=… cloud=up\|down\|off time=ok\|no tz=… ble=… ws=… mag=0-4` |
+| `!info` | ask for the device's state | `# INFO fw=… name=… wifi=up\|down\|unset ip=… rssi=… cloud=up\|down\|off time=ok\|no tz=… ble=… ws=… mag=0-4 orient=+x+y+z` |
 | `!wifi SSID<TAB>PASSWORD` | store Wi-Fi credentials (flash) and connect. Over Bluetooth / WebSocket only in the first 10 minutes after power-up, or while none are stored; over USB always | `# WIFI connecting to …`, `# WIFI setup closed …` |
 | `!forget` | delete the stored Wi-Fi credentials | `# WIFI credentials deleted` |
 | `!tz MINUTES` | local time zone offset east of UTC (−720…840); used for local days in the cloud | `# TZ n` |
 | `!fall cancelled\|confirmed\|no-response` | the phone's answer to the fall countdown, forwarded to the cloud | none |
 | `!recenter` | yaw = 0 (and re-anchor the compass) | `# Yaw recentred` |
+| `!orient SX SY SZ` (each `+x`…`-z`, every axis once) | how the board sits on the head: head X (right), Y (forward), Z (up) = ±that board axis; must be a rotation. Stored in flash; re-calibrates | `# ORIENT … : keep the headset still`, `# ORIENT applied`, `# ORIENT invalid: …` |
+| `!zupt on\|off` | learn the gyro bias while still (default on) | none |
 | `!mag start\|stop\|clear` | compass calibration | `# MAG progress n%`, `# MAG calibrated: …`, `# MAG <reason it failed>` |
 | `!reboot` | restart | `# REBOOT` |
 

@@ -53,7 +53,8 @@
 #define HTM_WIFI_OPEN_MS 600000UL
 
 bool htmCoreCommand(const char *line);                            // sketch: sens, recenter, compass, ...
-int htmMagState();                                                // sketch: 0 none, 1 uncalibrated, 2 ignored now, 3 correcting, 4 calibrating
+int htmMagState();
+const char *htmOrient();                                          // sketch: "+x+y+z"                                                // sketch: 0 none, 1 uncalibrated, 2 ignored now, 3 correcting, 4 calibrating
 
 namespace lnk {
 
@@ -114,7 +115,7 @@ void connectWifi() {
 }
 
 void info() {
-  status("INFO fw=%s name=%s wifi=%s ip=%s rssi=%d cloud=%s time=%s tz=%d ble=%d ws=%d mag=%d",
+  status("INFO fw=%s name=%s wifi=%s ip=%s rssi=%d cloud=%s time=%s tz=%d ble=%d ws=%d mag=%d orient=%s",
          HTM_FW_VERSION, devName, WiFi.status() == WL_CONNECTED ? "up" : (ssid.length() ? "down" : "unset"),
          WiFi.localIP().toString().c_str(), WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0,
 #if HTM_HAVE_CLOUD
@@ -122,7 +123,7 @@ void info() {
 #else
          "off",
 #endif
-         timeSet ? "ok" : "no", tzMin, (int)bleConnected, (int)(wsStarted ? ws.connectedClients() : 0), htmMagState());
+         timeSet ? "ok" : "no", tzMin, (int)bleConnected, (int)(wsStarted ? ws.connectedClients() : 0), htmMagState(), htmOrient());
 }
 
 /** One command line from any channel. `trusted`: USB serial. */

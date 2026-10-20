@@ -42,8 +42,10 @@ One line each, over Bluetooth, WebSocket or USB. The single digits `1`–`5` (se
 | `!tz MINUTES` | time zone offset east of UTC (330 = India); the app sends it on connect |
 | `!fall cancelled\|confirmed\|no-response` | the phone's answer to a fall countdown. The BOOT button also means "I'm OK". With no answer within 40 s the headset reports "no-response" itself |
 | `!recenter` | yaw = 0 |
+| `!orient +x +z -y` | how the board sits on the head: head X (right), Y (forward), Z (up) are read from these board axes. Must be a rotation (the app offers the 24 valid ones). Stored in flash, re-calibrates for 2 s |
+| `!zupt on\|off` | learn the gyro bias while the head is still (on by default; off only for tests) |
 | `!mag start\|stop\|clear` | compass calibration (see `docs/ORIENTATION.md`) |
-| `!info` | prints `# INFO fw=… name=… wifi=… ip=… rssi=… cloud=… time=… tz=… ble=… ws=… mag=…` |
+| `!info` | prints `# INFO fw=… name=… wifi=… ip=… rssi=… cloud=… time=… tz=… ble=… ws=… mag=… orient=…` |
 | `!reboot` | restart |
 
 ## Output line
@@ -59,6 +61,7 @@ One line each, over Bluetooth, WebSocket or USB. The single digits `1`–`5` (se
 | Detector output unchanged against the legacy baseline (all 5 sensitivity levels) | `node tools/hostsim/run.mjs --check` |
 | Cloud reporter (C++) identical to the TypeScript reference on 13 scenarios | `npm run hostsim:cloud` |
 | Compass: calibration, drift, mirrored mounting, disturbance, detector unaffected | `node tools/hostsim/compass-check.mjs` |
+| Board mounting (`!orient`, four mountings) and drift while still (`!zupt`) | `node tools/hostsim/orient-check.mjs` |
 | The sketch compiles for the ESP32 with and without the cloud | CI (`arduino-cli compile`) |
 
 **Not covered, because it needs a real board:** BLE and Wi-Fi radio behaviour (range, throughput, reconnects), the MQTT/TLS connection to AWS IoT Core, the QMC5883P's real register behaviour and axis directions. Everything above those layers is tested.

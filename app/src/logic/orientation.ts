@@ -36,6 +36,33 @@ export function applyMapping(a: Euler3, m: AxisMapping): Euler3 {
   };
 }
 
+/**
+ * Keeps the displayed turn (yaw) from creeping when the head is still. The gyro's yaw drifts slowly (a small bias, and
+ * temperature moves it); without a compass that shows up as the head slowly turning by itself. A turn slower than `slowDps`
+ * (smoothed over a second and a half) that is also not accelerating (smoothed over 0.3 s) is taken to be drift and removed:
+ * the returned offset grows by exactly the amount the yaw moved, so the picture stays put. A real head turn is far faster.
+ */
+export class YawHold {
+  private last: number | null = null;
+  private fast = 0;
+  private slow = 0;
+  /** Total drift removed so far (degrees): subtract it from the yaw. */
+  offset = 0;
+  constructor(private readonly slowDps = 1.0, private readonly fastDps = 2.0) {}
+  reset() { this.last = null; this.fast = this.slow = this.offset = 0; }
+  /** One call per frame with the yaw (degrees) and the time since the previous frame (seconds). */
+  step(yaw: number, dt: number): number {
+    if (this.last === null || !(dt > 0)) { this.last = yaw; return this.offset; }
+    const d = wrap180(yaw - this.last);
+    this.last = yaw;
+    const r = d / dt;
+    this.fast += (r - this.fast) * Math.min(1, dt / 0.3);
+    this.slow += (r - this.slow) * Math.min(1, dt / 1.5);
+    if (Math.abs(this.fast) < this.fastDps && Math.abs(this.slow) < this.slowDps) this.offset += d;
+    return this.offset;
+  }
+}
+
 export function relativeTo(a: Euler3, zero: Euler3): Euler3 {
   return { pitch: a.pitch - zero.pitch, roll: a.roll - zero.roll, yaw: wrap180(a.yaw - zero.yaw) };
 }

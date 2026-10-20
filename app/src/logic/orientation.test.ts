@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyMapping, DEFAULT_MAPPING, Exaggerator, headQuaternion, relativeTo, rotate, slerp, smoothingFactor, wrap180 } from './orientation';
+import { applyMapping, DEFAULT_MAPPING, Exaggerator, headQuaternion, relativeTo, rotate, slerp, smoothingFactor, wrap180, YawHold } from './orientation';
 
 const close = (a: number[], b: number[]) => a.forEach((x, i) => expect(x).toBeCloseTo(b[i], 5));
 
@@ -63,5 +63,53 @@ describe('recenter, mapping, exaggeration', () => {
     expect(jolt.pitch).toBeGreaterThan(11);                        // a sudden change is
     const plain = new Exaggerator();
     expect(plain.step({ pitch: 3, roll: 2, yaw: 1 }, 1)).toEqual({ pitch: 3, roll: 2, yaw: 1 });
+  });
+});
+
+describe('YawHold (drift removal while the head is still)', () => {
+  const run = (rateAt: (t: number) => number, seconds: number, hold = new YawHold()) => {
+    let yaw = 0, shown = 0;
+    const shownAt: number[] = [];
+    for (let i = 0; i < seconds * 50; i++) {
+      const t = i / 50;
+      yaw += rateAt(t) * 0.02;
+      shown = yaw - hold.step(yaw, 0.02);
+      shownAt.push(shown);
+    }
+    return { yaw, shown, shownAt };
+  };
+
+  it('keeps a still head still while the gyro drifts', () => {
+    const r = run(() => 0.4, 120);                      // 0.4 deg/s of drift: 48 degrees in two minutes
+    expect(r.yaw).toBeCloseTo(48);
+    expect(Math.abs(r.shown)).toBeLessThan(1);
+  });
+
+  it('lets a real turn through almost untouched, then holds the new direction', () => {
+    // 3 s still, a 40 degree turn in half a second, 5 s still
+    const r = run((t) => (t >= 3 && t < 3.5 ? 80 : 0.3), 8.5);
+    expect(r.shownAt[Math.floor(3.5 * 50) + 5]).toBeGreaterThan(36);       // the turn is seen
+    expect(Math.abs(r.shown - 40)).toBeLessThan(4);                        // and it stays about where it ended, not creeping on
+  });
+
+  it('lets a deliberate slow turn through (3 degrees per second)', () => {
+    const r = run(() => 3, 10);
+    expect(r.shown).toBeGreaterThan(27);
+  });
+
+  it('handles the wrap at 180 degrees', () => {
+    const hold = new YawHold();
+    let yaw = 170;
+    for (let i = 0; i < 1000; i++) { yaw = ((yaw + 0.01 + 180) % 360) - 180; hold.step(yaw, 0.02); }
+    expect(hold.offset).toBeGreaterThan(9);
+    expect(hold.offset).toBeLessThan(11);
+  });
+
+  it('starts over after reset', () => {
+    const hold = new YawHold();
+    for (let i = 0; i < 200; i++) hold.step(i * 0.005, 0.02);
+    expect(hold.offset).toBeGreaterThan(0);
+    hold.reset();
+    expect(hold.offset).toBe(0);
   });
 });

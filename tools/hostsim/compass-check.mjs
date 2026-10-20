@@ -30,9 +30,10 @@ function run(scenario, flags = []) {
 
 let failed = 0;
 const check = (ok, msg) => { console.log(`${ok ? '✓' : '✗'} ${msg}`); if (!ok) failed++; };
-const cal = ['--mag', '--mag-cal-at', '1'];
+const zupt = ['--send', '!zupt off\\n'];                       // isolate the compass from the zero-rate update (tools/hostsim/orient-check.mjs covers that)
+const cal = ['--mag', '--mag-cal-at', '1', ...zupt];
 
-const base = run('compass_session');
+const base = run('compass_session', zupt);
 check(Math.abs(base.report.yawErrEnd) > 25, `without a compass the yaw drifts: ${base.report.yawErrEnd.toFixed(1)}° off after 150 s (gyro bias ramp)`);
 
 const fused = run('compass_session', cal);
@@ -56,12 +57,12 @@ const during = dist.report.series.filter(([t]) => t >= 70 && t <= 80).map(([, e]
 check(Math.max(...during) < 8 && dist.report.yawErrMaxAfter < 8, `10 s magnetic disturbance (0.6 G) ignored: error at most ${dist.report.yawErrMaxAfter.toFixed(1)}°`);
 check(dist.report.series.some(([t, , q]) => t >= 70 && t <= 80 && q === 2), 'compass state shows "ignored" during the disturbance');
 
-const raw = run('compass_session', ['--mag']);
-const noMag = run('compass_session');
+const raw = run('compass_session', ['--mag', ...zupt]);
+const noMag = run('compass_session', zupt);
 check(raw.frames.length === noMag.frames.length && raw.frames.every((f, i) => f[3] === noMag.frames[i][3]), 'compass fitted but not calibrated: yaw identical to the gyro-only yaw');
 
 for (const sc of ['tremor_no_4.5hz_6dps', 'combo_yes_no_diag', 'walk_1.8', 'voluntary_turns']) {
-  const a = run(sc), b = run(sc, cal);
+  const a = run(sc, zupt), b = run(sc, cal);
   const cols = (r) => r.frames.map((f) => f.filter((_, i) => i !== 3 && i !== 24).join(','));   // everything except yaw and the compass state
   check(JSON.stringify(cols(a)) === JSON.stringify(cols(b)), `${sc}: tremor, walking and every other output unchanged by the compass`);
 }

@@ -23,6 +23,7 @@ export interface Settings {
   range2d: number;            // degrees at the edge of the 2D circle
   trail: boolean;
   mapping: AxisMapping;
+  holdYaw: boolean;           // remove slow yaw drift while the head is still (real devices only)
   wsUrl: string;
   sensitivity: number;        // 1..5, sent to the device
   largeText: boolean;
@@ -48,6 +49,7 @@ export const useSettings = create<Settings>()(
       range2d: 25,
       trail: true,
       mapping: DEFAULT_MAPPING,
+      holdYaw: true,
       wsUrl: 'ws://localhost:8787',
       sensitivity: 2,
       largeText: false,

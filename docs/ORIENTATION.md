@@ -9,7 +9,29 @@ The board reports **pitch** (nod), **roll** (tilt) and **yaw** (turn left and ri
 
 The tremor detector never uses yaw angle or the compass: it works on the band-passed gyro rates. A test (`tools/hostsim/compass-check.mjs`) shows that tremor, walking and every other output are **identical** with and without a compass.
 
-## What the correction does (`firmware/tremor_monitor/mag.h`)
+## Why the head can creep to one side while you sit still
+
+The gyro's start-up calibration lasts two seconds and leaves a tiny error (a few hundredths of a degree per second), and temperature moves it afterwards. Integrated into an angle, that is a steady slow turn: the yaw "creeps" even though nothing moves. Pitch and roll do not, because gravity corrects them. Two things stop it:
+
+1. **In the headset (zero-rate update).** While the head is still (all three gyro axes calm for 1.5 s, gravity at 1 g, and the gyro's own average within 1 °/s of its bias) the headset slowly learns the bias (time constant about 3 s). A tremor, walking or any real movement keeps it out of this state, so it never learns from them. `!zupt off` turns it off for tests. Measured in the simulator: 56° of creep in 150 s becomes 3.2°, and tremor, walking and every other output are unchanged.
+2. **In the app ("Keep the head steady when it is still").** A turn slower than about 1° per second that is also not accelerating is taken as drift and removed from the picture. Real turns are much faster. It works with any firmware and over USB, but only for real headsets (not demo, replay or the cloud view). Untick it to see the raw yaw.
+
+With the optional compass (next section) the yaw is also pulled towards the compass heading, which removes drift even while you move.
+
+## How the board sits on the head (mounting)
+
+The headset reports angles in the **head's** axes: X to the right, Y forward (the face), Z up. If the board is stuck on in another way, the angles come out confused: nodding moves the picture sideways, or turning looks like tilting.
+
+**Live screen → Orientation → "Board mounted differently?"**: for the X, Y and Z arrows printed on the MPU6050, choose which way each points when the headset is worn. **Apply to the headset** sends `!orient +x +z -y` (an example). The headset stores it in flash and from then on remaps every accelerometer, gyro and compass reading before anything else sees it, so tremor axes ("yes-yes", "no-no"), falls and posture all use the head's own directions. It re-calibrates for about 2 seconds, so keep it still.
+
+- A real mounting is a rotation: there are exactly **24** (the app accepts those 24 and refuses the 24 mirror images, and any choice that uses a line twice, with the reason).
+- Presets cover the common ones: turned a quarter, half way round, standing on its edge, upside down.
+- **Reverse** (per direction: up/down, left/right, sideways) only flips the picture on screen. Use it for a final adjustment, for example if "right" should be the other way round for you.
+- `!info` reports the mounting (`orient=+x+y+z`) and the app shows it back to you.
+
+Tested in the host simulator against four mountings (rotated 90°, standing on its edge, upside down, on its side): the angles are within 2° of the default mounting, a "no-no" tremor is still found on the yaw axis, a "yes-yes" stays "yes-yes", a fall is still seen, and without the command the axes really are confused (so the command is what fixes it).
+
+## What the compass correction does (`firmware/tremor_monitor/mag.h`)
 
 At 50 Hz the QMC5883P is read and its field vector is corrected with the calibration (hard-iron offset, soft-iron scale), tilt-compensated with the pitch and roll above, and turned into a heading. The yaw is then pulled towards that heading with a **time constant of 5 s**:
 

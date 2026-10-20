@@ -13,7 +13,7 @@ export default function About() {
         <ul className="fine" style={{ margin: 0, paddingLeft: '1.1rem', display: 'grid', gap: 4 }}>
           <li>Tremor alerts take about 1.7 s to appear.</li>
           <li>While walking, a tremor at a multiple of the step rate can't be separated from step bounce.</li>
-          <li>Turn (yaw) drifts slowly without a compass; with the optional compass fitted and calibrated it is kept steady, unless a magnet or steel is close.</li>
+          <li>Turn (yaw) drifts slowly without a compass. The headset learns its gyro drift while you are still and the app ignores turns slower than about 1° per second; with the optional compass fitted and calibrated it is steadier still, unless a magnet or steel is close.</li>
           <li>The detector, the compass correction and the radio links have been tested on simulated motion and in simulators only, not yet on real heads, boards or a real AWS account.</li>
           <li>Fall detection is a heuristic: it misses slow slumps and soft landings, and dropping the headset looks like a fall. Caregiver alerts (an email, after a fall nobody answered) need the optional cloud, a confirmed email address and a working internet connection, and can be late or missed: do not rely on them for safety.</li>
           <li>Bluetooth works over a few metres. Wi-Fi setup is sent once over the link you are using, without encryption.</li>
