@@ -8,13 +8,13 @@ import ReminderBanner from './components/ReminderBanner';
 import TabBar from './components/TabBar';
 import { BrandMark, IconGear } from './components/icons';
 import Live from './screens/Live';
-import Placeholder from './screens/Placeholder';
 // screens other than Live load on demand, keeping the first load small
 const Settings = lazy(() => import('./screens/Settings'));
 const About = lazy(() => import('./screens/About'));
 const Trends = lazy(() => import('./screens/Trends'));
 const Log = lazy(() => import('./screens/Log'));
 const Insights = lazy(() => import('./screens/Insights'));
+const Report = lazy(() => import('./screens/Report'));
 
 function ConnPill({ onClick }: { onClick: () => void }) {
   const s = useLive();
@@ -68,7 +68,7 @@ export default function App() {
         {route === 'trends' && <Trends />}
         {route === 'log' && <Log />}
         {route === 'insights' && <Insights />}
-        {route === 'report' && <Placeholder title="Doctor report" milestone={5} items={['Pick a date range, get a PDF', 'Severity trend, episode table, patterns with their evidence', 'Medication and trigger findings with sample counts, vitals trends, impact events', 'A plain-language disclaimer']} />}
+        {route === 'report' && <Report />}
         {route === 'settings' && <Settings />}
         {route === 'about' && <About />}
         </Suspense>

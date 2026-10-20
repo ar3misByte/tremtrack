@@ -1,0 +1,25 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>PDF preview (dev only)</title>
+<style>body{margin:0;background:#888}canvas{display:block;margin:8px auto;background:#fff}</style></head>
+<body>
+<script type="module">
+  // Dev-only helper for scripts/pdf-shots.mjs: renders a PDF (passed as base64) to canvases with pdf.js.
+  import * as pdfjs from 'pdfjs-dist';
+  import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+  pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
+  window.renderPdf = async (b64, scale = 1.6) => {
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const pdf = await pdfjs.getDocument({ data: bytes }).promise;
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const vp = page.getViewport({ scale });
+      const c = document.createElement('canvas');
+      c.width = vp.width; c.height = vp.height; c.id = 'p' + i;
+      document.body.appendChild(c);
+      await page.render({ canvasContext: c.getContext('2d'), viewport: vp, canvas: c }).promise;
+    }
+    return pdf.numPages;
+  };
+  window.ready = true;
+</script>
+</body></html>

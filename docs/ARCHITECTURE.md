@@ -1,6 +1,6 @@
 # Architecture
 
-Status after milestone 4: medication schedules, reminders and dose log; quick tags; Insights with time-of-day-matched tag comparisons, paired before/after medication comparisons, heart rate around episodes (bootstrap intervals, Bonferroni-corrected, "not enough data" thresholds), and pattern hints from a reviewable table. Status after milestone 3: firmware reports every shaking axis and per-line acceleration extremes with a ±8 g range; the app adds combined-tremor analysis, fall candidates with a cancel countdown, posture and stillness against a calibrated neutral pose, and resting vitals. Status after milestone 2: the **local path** is built: firmware (unchanged legacy sketch), USB / WebSocket / demo / replay transports, the live view, and local history (sessions, scored episodes, 1 Hz samples in IndexedDB) with Trends. Everything shown dashed below is planned.
+Status after milestone 5: doctor report PDF generated in the browser (jsPDF, lazily loaded; vector charts). Status after milestone 4: medication schedules, reminders and dose log; quick tags; Insights with time-of-day-matched tag comparisons, paired before/after medication comparisons, heart rate around episodes (bootstrap intervals, Bonferroni-corrected, "not enough data" thresholds), and pattern hints from a reviewable table. Status after milestone 3: firmware reports every shaking axis and per-line acceleration extremes with a ±8 g range; the app adds combined-tremor analysis, fall candidates with a cancel countdown, posture and stillness against a calibrated neutral pose, and resting vitals. Status after milestone 2: the **local path** is built: firmware (unchanged legacy sketch), USB / WebSocket / demo / replay transports, the live view, and local history (sessions, scored episodes, 1 Hz samples in IndexedDB) with Trends. Everything shown dashed below is planned.
 
 ```mermaid
 flowchart LR
@@ -70,7 +70,8 @@ app/src/config/      thresholds.ts (every threshold, commented), hints.ts (patte
 app/src/data/       db.ts (IndexedDB), recorder.ts (live stream -> storage), csvExport.ts
 app/src/device/     sources.ts (Web Serial, WebSocket, BLE stub, demo), live.ts (live state)
 app/src/components/ Head3D + headModel (three.js), Circle2D, Traces, ConnectSheet, TabBar
-app/src/screens/    Live, Trends, Log, Insights, Settings, About (built); placeholder for Report (milestone 5)
+app/src/screens/    Live, Trends, Log, Insights, Report, Settings, About
+app/src/report/     pdf.ts (doctor report layout); logic/reportData.ts assembles its content
 app/src/theme/      tokens.css: every colour, font, size, radius in one place
 tools/hostsim/      mock Arduino + synthetic sensors; run.mjs = regression runner
 tools/devsim/       50 Hz stream over WebSocket / stdout (MQTT in M6)

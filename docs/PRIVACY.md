@@ -2,7 +2,7 @@
 
 This app handles health-related personal data: head-motion patterns, heart rate, SpO₂, and later medication and symptom logs. This file lists what is stored, where, for how long, and how to delete it. It is updated in every milestone that changes the answer.
 
-## Current state (milestone 4)
+## Current state (milestone 5)
 
 | Data | Where | Retention | How to delete |
 |---|---|---|---|
@@ -13,6 +13,7 @@ This app handles health-related personal data: head-motion patterns, heart rate,
 | Fall / impact candidates and your answer (I'm OK / help / no response) | IndexedDB `htm-local` | Until deleted | Settings → Delete all my data |
 | Quick tags (coffee, stress, poor sleep, …, custom text) | IndexedDB `htm-local` | Until deleted | Delete on the Log screen, or Settings → Delete all my data |
 | **Medication names and doses you type**, schedules, and your dose log | IndexedDB `htm-local` | Until deleted | Delete the medication (also deletes its log) on the Log screen, or Settings → Delete all my data |
+| Doctor report PDF | Made in the browser and saved where **you** choose; the optional name is printed only, never stored | Your file | Delete the file |
 | Snoozed reminders | Browser `sessionStorage` | Until the tab closes | Close the tab |
 | Raw stream recordings | Only in files **you** download from the Live screen | Your files | Delete the files |
 | Live sensor stream | Memory only (last 5 s for the charts) | Gone when the page closes | n/a |

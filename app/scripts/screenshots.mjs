@@ -80,7 +80,10 @@ async function session(name, viewport, scale) {
   await shot('12-insights');
   await shot('12b-insights-full', true);
   await shotAt('12c-insights-tags', '[aria-label="Tags and tremor"]');
-  for (const r of ['live', 'trends', 'log', 'insights', 'settings', 'about']) {
+  await page.goto(base + '/#/report');
+  await page.waitForTimeout(1500);
+  await shot('13-report', true);
+  for (const r of ['live', 'trends', 'log', 'insights', 'report', 'settings', 'about']) {
     await page.goto(base + '/#/' + r);
     await page.waitForTimeout(400);
     const over = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
