@@ -9,7 +9,7 @@ import { episodesCsv } from './csvExport';
 
 const base: Frame = {
   pitch: 0, roll: 0, yaw: 0, fPitch: 0, fRoll: 0, fYaw: 0, tremor: false, dir: 0, ampP: 0.3, ampR: 0.3, ampY: 0.3, freq: 0, q: 0.2,
-  walking: false, stepHz: 0, cycles: 0, bpm: 72, spo2: 97, ppgState: 3, pulse: 0, axes: 0, aMax: 1, aMin: 1, nValues: 23, extra: [],
+  walking: false, stepHz: 0, cycles: 0, bpm: 72, spo2: 97, ppgState: 3, pulse: 0, axes: 0, aMax: 1, aMin: 1, magQ: null, nValues: 23, extra: [],
 };
 const NOW = Date.UTC(2026, 9, 20, 12);
 

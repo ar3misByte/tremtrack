@@ -16,9 +16,12 @@
     "typecheck": "npm run typecheck -w app && npm run typecheck -w tools/devsim && npm run typecheck -w infra",
     "sim": "npm run start -w tools/devsim --",
     "hostsim": "node tools/hostsim/run.mjs",
+    "hostsim:cloud": "tsx tools/hostsim/cloud-check.ts",
     "cdk:synth": "npm run synth -w infra",
     "cdk:deploy": "npm run deploy -w infra",
-    "cdk:destroy": "npm run destroy -w infra"
+    "cdk:destroy": "npm run destroy -w infra",
+    "serve:lan": "npm run build -w app && npm run serve:lan -w app",
+    "cloudmock": "tsx tools/devsim/src/cloudmock.ts --demo-history"
   },
   "engines": {
     "node": ">=20"

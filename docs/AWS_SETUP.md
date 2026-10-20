@@ -5,7 +5,7 @@ For someone with a new AWS account who has never used IoT Core, working on **Win
 - **Expected cost:** well under US$1 per month for one device (see `COSTS.md`), normally covered by your sign-up credits.
 - **Region:** `ap-south-1` (Mumbai). It is the closest region to India, and every service used here is available there; checked on 2026-10-20, see `COSTS.md`.
 
-> **Status (milestone 6):** the backend, device provisioning, the simulator-to-cloud path and the automated checks are complete. **Signing in from the app and the live cloud view arrive in milestone 7**, with the Wi-Fi/MQTT firmware. Until then, step 6 uses the test script, and step 5 uses the simulator instead of the board.
+> **Status:** the backend, device provisioning, firmware (Wi-Fi, MQTT, compiled but not yet run on a board against real AWS), the app's sign-in, live cloud view, history and sync (tested against a local mock of this backend), and the automated checks are all in place. **A real deployment has not been done yet**: the first run is yours, and steps 3, 5, 6 and 7 are where surprises would show. Tell me what fails.
 
 Commands are for **PowerShell**, run from the repository folder (`D:\mpmc proj`). Quote paths that contain spaces.
 
@@ -167,19 +167,24 @@ npm run sim -- --mqtt tools/aws/out/htm-01/devsim.json --minutes 10
   - `D#htm-01` is the device status.
   - `DAY#…` items appear after the hourly aggregator runs.
 
-**With the board (milestone 7):** flash `firmware/tremor_monitor` with `device_config.h` present, enter your Wi-Fi details in the setup portal, and watch the same topics.
+**With the board:** open `firmware/tremor_monitor` in the Arduino IDE with the generated `device_config.h` next to it, choose **Tools → Partition Scheme → Huge APP (3MB No OTA/1MB SPIFFS)** (the cloud code does not fit the default), upload, then give it Wi-Fi from the app (Settings → Headset, over Bluetooth; see `PHONE_SETUP.md`). The serial monitor shows `# WIFI connected`, `# TIME synchronised`, `# CLOUD connected`. Watch the same topics in the console.
 
-## 6. App: sign in, live data, history (milestone 7)
+## 6. App: sign in, live data, history, sync
 
-The app's sign-in and live cloud view are not built yet. Everything they need is deployed and tested by step 7:
-- sign-in (Cognito hosted login);
-- linking the identity (`POST /v1/me/link`);
-- live MQTT over WebSocket with temporary credentials from the identity pool;
-- history (`GET /v1/days`, `/v1/events`, `/v1/telemetry`);
-- sync (`PUT/GET /v1/sync`);
-- deleting data (`DELETE /v1/me`).
+1. **Get the setup link.** It carries your pool ids and addresses (nothing secret):
+   ```powershell
+   node tools/aws/app-link.mjs --app-url https://<your-name>.github.io/<repository>/
+   ```
+   The app must be served from an address you gave the stack: deploy with `-c appOrigins=http://localhost:5173,https://<your-name>.github.io/<repository>` (a path is allowed). With `-c withHosting=true` the stack hosts the app itself and `app-link` uses that address.
+2. **Open the link on the phone** (or paste the code in the app: **Cloud** icon at the top, *Set up the cloud*). Check the details it shows (region, sign-in address, API address), then **Use this setup**. The app refuses any address that is not an AWS address for that region.
+3. **Sign in.** The first time you choose *Create account* on the Cognito page (email and a password of 10 or more characters; the code arrives by email). You return to the app signed in. The app links your sign-in to your cloud identity automatically.
+4. The **Headsets** card lists every headset that has reported. **Watch live** opens the Live screen on its data (a new summary every second while you watch, none of it saved on the phone). **Last 30 days** and **Recent events** come from the hourly aggregator and the event Lambda.
+5. **Sync** uploads this phone's records to your account and downloads what your other devices uploaded. Medication names and doses are only included if you tick the box.
+6. **Delete my cloud data** removes everything stored for you (and optionally the account).
 
-This step will be completed in milestone 7.
+*Expected:* `Signed in · demo@…`, your headset *Online* within a minute of it connecting, *Watch live* moving the 3D head, *Sync now* → "sent N records".
+
+To try all of this **without AWS**, run `npm run cloudmock` and paste the code it prints: a local copy of the sign-in page, the API (the real Lambda code), the broker and the IoT rules, plus `npm run sim -- --mqtt tools/devsim/out/mock-device.json` for a simulated headset.
 
 ## 7. Test the whole cloud path without hardware
 
@@ -245,6 +250,9 @@ If `alertEmail` was confirmed, a "possible fall" email arrives within a minute. 
 | API returns 409 *not linked* | The user hasn't linked their identity yet | `POST /v1/me/link` with the identity id (the app does this after sign-in) |
 | Browser: *CORS* error | Page origin not in `appOrigins` | Redeploy with `-c appOrigins=http://localhost:5173,https://…` |
 | Cognito hosted login: *redirect_mismatch* | Callback URL differs (they end with `/`) | Use exactly `<origin>/`; redeploy with the right `appOrigins` |
-| Device shows offline although it runs | Wi-Fi drop; MQTT keep-alive (60 s) missed. The broker publishes the last will after about 1.5 × keep-alive | Firmware reconnects with back-off and republishes `online` (retained); short outages are buffered on the device |
-| Browser live view stops after about an hour | Identity-pool credentials expire (1 h) | The app refreshes credentials and reconnects (milestone 7) |
+| Device shows offline although it runs | Wi-Fi drop; MQTT keep-alive (60 s) missed. The broker publishes the last will after about 1.5 × keep-alive | The ESP-IDF client reconnects by itself and republishes `online` (retained); **events** (not telemetry) wait in a 16-slot queue meanwhile |
+| Browser live view stops after about an hour | Identity-pool credentials expire (1 h) | The app signs a fresh URL on every reconnect and retries up to 6 times; if it gives up, press *Watch live* again |
+| Sign-in page says *redirect_mismatch* | The address you opened the app from is not in the stack's callback URLs | Redeploy with `-c appOrigins=…` including exactly that address (a path is fine), then `app-link` again |
+| Cloud screen: *The setup … is not valid* | The link was cut off by a messenger | Copy the whole link, or use the bare code from `app-link` |
+| Live view connects, then drops at once | The browser policy was not attached (linking failed) or the clock is wrong | Cloud → Refresh (it re-links); check the phone's date and time |
 | Bill higher than expected | A device publishing at 1 Hz all day, or a loop | Cost Explorer by service; killswitch; check `rate` in the device status |

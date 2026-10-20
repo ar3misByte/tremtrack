@@ -1,19 +1,19 @@
 # Architecture
 
-Status after milestone 6: the **AWS backend** is built as one CDK stack in `ap-south-1` (IoT Core with per-device X.509 certificates, IoT rules into DynamoDB, events/aggregate/API Lambdas, HTTP API with Cognito JWT, Cognito user and identity pools, SNS caregiver email, budget, optional S3 + CloudFront hosting), with device provisioning scripts, a kill switch, and the simulator publishing the v1 cloud protocol over MQTT/TLS. The firmware networking and the app's sign-in and live cloud view follow in milestone 7. Status after milestone 5: doctor report PDF generated in the browser (jsPDF, lazily loaded; vector charts). Status after milestone 4: medication schedules, reminders and dose log; quick tags; Insights with time-of-day-matched tag comparisons, paired before/after medication comparisons, heart rate around episodes (bootstrap intervals, Bonferroni-corrected, "not enough data" thresholds), and pattern hints from a reviewable table. Status after milestone 3: firmware reports every shaking axis and per-line acceleration extremes with a ±8 g range; the app adds combined-tremor analysis, fall candidates with a cancel countdown, posture and stillness against a calibrated neutral pose, and resting vitals. Status after milestone 2: the **local path** is built: firmware (unchanged legacy sketch), USB / WebSocket / demo / replay transports, the live view, and local history (sessions, scored episodes, 1 Hz samples in IndexedDB) with Trends. Everything shown dashed below is planned.
+Status after milestone 8: the compass (QMC5883P) steadies the yaw. Status after milestone 7: the firmware streams over **Bluetooth LE** and a LAN **WebSocket** as well as USB, reports to AWS IoT over MQTT, and the app can install on a phone, connect over Bluetooth, set up the headset's Wi-Fi, sign in to the cloud, watch a headset remotely, show history and sync. Status after milestone 6: the **AWS backend** is built as one CDK stack in `ap-south-1` (IoT Core with per-device X.509 certificates, IoT rules into DynamoDB, events/aggregate/API Lambdas, HTTP API with Cognito JWT, Cognito user and identity pools, SNS caregiver email, budget, optional S3 + CloudFront hosting), with device provisioning scripts, a kill switch, and the simulator publishing the v1 cloud protocol over MQTT/TLS. The firmware networking and the app's sign-in and live cloud view follow in milestone 7. Status after milestone 5: doctor report PDF generated in the browser (jsPDF, lazily loaded; vector charts). Status after milestone 4: medication schedules, reminders and dose log; quick tags; Insights with time-of-day-matched tag comparisons, paired before/after medication comparisons, heart rate around episodes (bootstrap intervals, Bonferroni-corrected, "not enough data" thresholds), and pattern hints from a reviewable table. Status after milestone 3: firmware reports every shaking axis and per-line acceleration extremes with a ±8 g range; the app adds combined-tremor analysis, fall candidates with a cancel countdown, posture and stillness against a calibrated neutral pose, and resting vitals. Status after milestone 2: the **local path** is built: firmware (unchanged legacy sketch), USB / WebSocket / demo / replay transports, the live view, and local history (sessions, scored episodes, 1 Hz samples in IndexedDB) with Trends. Everything shown dashed below is planned.
 
 ```mermaid
 flowchart LR
   subgraph Head["Head-worn board"]
     MPU[MPU6050<br/>gyro + accel] --> FW
     PPG[MAX30102<br/>HR + SpO2] --> FW
-    MAG[QMC5883P<br/>magnetometer]:::planned -.-> FW
+    MAG[QMC5883P<br/>compass, steadies yaw] --> FW
     FW[ESP32 firmware<br/>100 Hz sampling, tremor + gait detector]
   end
 
-  FW -- "USB serial 50 Hz (built)" --> APP
-  FW -. "BLE 50 Hz (M7, Android)" .-> APP
-  FW -. "LAN WebSocket 50 Hz (M7)" .-> APP
+  FW -- "USB serial 50 Hz" --> APP
+  FW -- "Bluetooth LE 50 Hz (Android Chrome)" --> APP
+  FW -- "LAN WebSocket 50 Hz" --> APP
   SIM[tools/devsim<br/>synthetic or real firmware via hostsim] -- "WebSocket 50 Hz (built)" --> APP
 
   subgraph Browser["PWA (phone / laptop)"]
@@ -33,7 +33,7 @@ flowchart LR
     S3[S3 + CloudFront<br/>app hosting, optional]
   end
 
-  FW -. "summary 0.2-1 Hz + events (M7)" .-> IOT
+  FW -- "summary 0.2-1 Hz + events, MQTT/TLS" --> IOT
   SIM -- "same protocol over MQTT/TLS (built)" --> IOT
   IOT -- "rules: telemetry, status" --> DDB
   IOT -- "rule: events" --> L1
@@ -41,8 +41,8 @@ flowchart LR
   L1 --> SNS
   L2 --> DDB
   L2 --> SNS
-  APP -. "MQTT over WSS (live, Cognito creds)" .-> IOT
-  APP -. "history, sync" .-> API
+  APP -- "MQTT over WSS (live, Cognito creds)" --> IOT
+  APP -- "history, sync" --> API
   API --> DDB
   API --> COG
   classDef planned stroke-dasharray: 4 3,opacity:0.8
@@ -62,6 +62,11 @@ flowchart LR
 | Fall, posture and resting-vitals rules run in the app for now | They are pure, tested TypeScript run on the firmware's output (host-simulator fixtures). The firmware sends the 100 Hz information they need (`aMax`, `aMin`). A firmware port of the fall rule is planned with networking (milestone 7), so a fall can raise a cloud event without the phone. |
 | The firmware reports WHICH axes shake, the app works out HOW they move together | Keeps the device's alert logic unchanged and regression-identical. Phase relations need only the 50 Hz band-passed signals the firmware already streams. |
 | Procedural head model | No licensing questions, about 0 KB of model download, and exactly the requested look (neutral skin, hair, glasses, headband with the sensor pod). See `HEAD_MODEL.md`. |
+| Phone link is **Bluetooth LE**, the cloud link is Wi-Fi + MQTT, both run in one FreeRTOS task on core 0 | The 100 Hz detector on core 1 only copies a frame into a queue; a slow phone, a bad Wi-Fi link or a TLS handshake cannot make it miss a sample. |
+| The firmware computes cloud summaries itself (C++ port of the app's tracker, severity and fall rules) | A headset on Wi-Fi works with no phone nearby, and falls reach the caregiver without the app. `hostsim:cloud` proves the port gives the same messages as the TypeScript reference. |
+| Compass only touches yaw, as a slow correction (5 s) with gates | A magnet or steel nearby can never affect tremor detection, and a 5 Hz tremor averages out of the correction. Tested for both. |
+| The cloud client loads lazily | Initial JS stays about 103 KB gzip; the cloud screens and the MQTT library (99 KB gzip) load only for people who set the cloud up. |
+| App setup by link (`tools/aws/app-link.mjs`), validated to AWS hosts | A static site has no server to hold configuration, and a crafted link must not be able to redirect the sign-in. |
 | CDK (TypeScript) for AWS, `ap-south-1` | One language across the repo; one command to deploy and to destroy. Mumbai is closest to the user, and IoT Core and Cognito user and identity pools are listed there (checked 2026-10-20, `COSTS.md`). |
 | IoT rule writes telemetry straight to DynamoDB; Lambda only for events and an hourly aggregate | No Lambda run per telemetry message. The aggregator overwrites whole hour buckets, so it is idempotent. |
 | Topics carry the owner: `tremor/v1/{owner}/{thing}/…` | The device policy reads the owner from the thing attribute, and the browser policy from the Cognito identity, so neither can publish or read under another user, with no wildcard grants. |
@@ -79,15 +84,16 @@ app/src/logic/      pure, unit-tested: csv.ts (protocol), orientation.ts, demoGe
                     hints.ts; __fixtures__ = firmware output
 app/src/config/      thresholds.ts (every threshold, commented), hints.ts (pattern hint table, needs clinical review)
 app/src/data/       db.ts (IndexedDB), recorder.ts (live stream -> storage), csvExport.ts
-app/src/device/     sources.ts (Web Serial, WebSocket, BLE stub, demo), live.ts (live state)
+app/src/device/     sources.ts (Web Serial, Web Bluetooth, WebSocket, demo, replay), live.ts (live state, commands)
 app/src/components/ Head3D + headModel (three.js), Circle2D, Traces, ConnectSheet, TabBar
 app/src/screens/    Live, Trends, Log, Insights, Report, Settings, About
 app/src/report/     pdf.ts (doctor report layout); logic/reportData.ts assembles its content
+app/src/cloud/      config (validated setup), auth (Cognito PKCE), aws (identity + API clients), sigv4, liveSource (MQTT over WSS), sync, client (store)
 app/src/theme/      tokens.css: every colour, font, size, radius in one place
 tools/hostsim/      mock Arduino + synthetic sensors; run.mjs = regression runner
-tools/devsim/       50 Hz stream over WebSocket / stdout; --mqtt publishes the v1 cloud protocol (mqtt.ts)
+tools/devsim/       50 Hz stream over WebSocket / stdout; --mqtt publishes the v1 cloud protocol (mqtt.ts); cloudmock.ts = local stand-in for the whole AWS backend
 tools/aws/          provision-device, deprovision-device, killswitch, cloud-e2e (use your AWS CLI login)
 infra/              CDK app: lib/stack.ts (the stack), lambda/ (events, aggregate, api, shared), test/ (template + local cloud path)
 app/src/logic/protocol.ts, cloudSummary.ts   cloud protocol v1 and the 50 Hz -> summary/events reducer
-firmware/           tremor_monitor (legacy detector + axes mask, |a| extremes, ±8 g)
+firmware/           tremor_monitor: detector + axes mask + |a| extremes (±8 g), frame.h, reporter.h (cloud summaries), mag.h (compass), link.h (BLE, WebSocket, Wi-Fi, MQTT)
 ```

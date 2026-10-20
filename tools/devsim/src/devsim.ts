@@ -102,6 +102,7 @@ export function main(argv = process.argv.slice(2)) {
   const o = parseArgs(argv);
   const log = (m: string) => { if (!o.quiet) process.stderr.write(`[devsim] ${m}\n`); };
   const clients = new Set<WebSocket>();
+  const sim = { tz: 330, ssid: '', wifi: false };
   let wss: WebSocketServer | null = null;
 
   if (o.ws) {
@@ -110,8 +111,22 @@ export function main(argv = process.argv.slice(2)) {
       clients.add(ws);
       log(`client connected from ${req.socket.remoteAddress} (${clients.size} total)`);
       ws.on('message', (m) => {
-        const s = m.toString().trim();
-        if (/^[1-5]$/.test(s)) { log(`sensitivity ${s} requested`); ws.send(`# Sensitivity ${s}\n`); }
+        // same command set as the firmware (firmware/tremor_monitor/link.h), answered with '#' lines
+        const s = m.toString().replace(/[\r\n]+$/, '');
+        const sens = /^(?:!sens )?([1-5])$/.exec(s.trim());
+        if (sens) { log(`sensitivity ${sens[1]} requested`); ws.send(`# Sensitivity ${sens[1]}\n`); }
+        else if (s.startsWith('!tz ')) { sim.tz = Number(s.slice(4)) || 0; ws.send(`# TZ ${sim.tz}\n`); }
+        else if (s.startsWith('!wifi ')) {
+          const [ssid] = s.slice(6).split('\t');
+          sim.ssid = ssid; log(`wifi credentials for "${ssid}" received (simulated)`);
+          ws.send(`# WIFI connecting to ${ssid}\n`);
+          setTimeout(() => { sim.wifi = true; ws.send('# WIFI connected (simulated)\n'); }, 800);
+        }
+        else if (s === '!forget') { sim.ssid = ''; sim.wifi = false; ws.send('# WIFI credentials deleted\n'); }
+        else if (s === '!recenter') ws.send('# Yaw recentred\n');
+        else if (s === '!info') {
+          ws.send(`# INFO fw=devsim-0.7.0 name=HeadTremor-SIM wifi=${sim.wifi ? 'up' : sim.ssid ? 'down' : 'unset'} ip=${lanAddresses()[0] ?? '127.0.0.1'} rssi=${sim.wifi ? -58 : 0} cloud=off time=${sim.wifi ? 'ok' : 'no'} tz=${sim.tz} ble=0 ws=${clients.size}\n`);
+        }
       });
       ws.on('close', () => { clients.delete(ws); log(`client left (${clients.size} total)`); });
     });

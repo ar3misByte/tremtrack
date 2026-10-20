@@ -35,9 +35,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 22 }
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
       - name: Host simulator vs baseline (real sketch, g++)
         run: node tools/hostsim/run.mjs --check
+      - name: Firmware cloud reporter vs the TypeScript reference
+        run: npm run hostsim:cloud
+      - name: Compass (calibration, drift, disturbance, mirrored mounting)
+        run: node tools/hostsim/compass-check.mjs
 
   firmware-compile:
     runs-on: ubuntu-latest
@@ -48,6 +53,10 @@ jobs:
         run: |
           arduino-cli core update-index --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
           arduino-cli core install esp32:esp32 --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
-          arduino-cli lib install "SparkFun MAX3010x Pulse and Proximity Sensor Library"
-      - name: Compile
+          arduino-cli lib install "SparkFun MAX3010x Pulse and Proximity Sensor Library" "NimBLE-Arduino" "WebSockets"
+      - name: Compile (Bluetooth + WebSocket + compass, no cloud)
         run: arduino-cli compile --fqbn esp32:esp32:esp32 --warnings default firmware/tremor_monitor
+      - name: Compile with the cloud code path (fake device_config.h, Huge APP partition)
+        run: |
+          cp firmware/tremor_monitor/device_config.example.h firmware/tremor_monitor/device_config.h
+          arduino-cli compile --fqbn esp32:esp32:esp32:PartitionScheme=huge_app --warnings default firmware/tremor_monitor

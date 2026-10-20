@@ -60,6 +60,12 @@ describe('TremorStack template', () => {
     for (const g of Object.values(t.findResources('AWS::Logs::LogGroup')) as any[]) expect(g.Properties.RetentionInDays).toBe(7);
   });
 
+  it('an app URL with a path (GitHub Pages): CORS gets the origin, Cognito gets the full callback URL', () => {
+    const p = synth({ appOrigins: ['http://localhost:5173', 'https://user.github.io/head-tremor/'] });
+    p.hasResourceProperties('AWS::Cognito::UserPoolClient', { CallbackURLs: ['http://localhost:5173/', 'https://user.github.io/head-tremor/'], LogoutURLs: ['http://localhost:5173/', 'https://user.github.io/head-tremor/'] });
+    p.hasResourceProperties('AWS::ApiGatewayV2::Api', { CorsConfiguration: Match.objectLike({ AllowOrigins: ['http://localhost:5173', 'https://user.github.io'] }) });
+  });
+
   it('HTTP API: CORS locked to the app origins, JWT on every route, throttled', () => {
     t.hasResourceProperties('AWS::ApiGatewayV2::Api', { CorsConfiguration: { AllowOrigins: ['http://localhost:5173'] } });
     for (const r of Object.values(t.findResources('AWS::ApiGatewayV2::Route')) as any[]) expect(r.Properties.AuthorizationType).toBe('JWT');

@@ -30,7 +30,7 @@ export interface TremorProps extends StackProps {
   alertEmail?: string;          // caregiver alerts (SNS email subscription; the address must confirm)
   budgetEmail?: string;         // budget alarms
   budgetUsd: number;
-  appOrigins: string[];         // allowed browser origins (CORS, Cognito callbacks), e.g. http://localhost:5173
+  appOrigins: string[];         // where the app is served, e.g. http://localhost:5173 or https://user.github.io/head-tremor (CORS uses the origin, Cognito callbacks the full URL)
   withHosting: boolean;         // S3 + CloudFront for the built app (app/dist)
 }
 
@@ -144,7 +144,9 @@ export class TremorStack extends Stack {
       });
       appUrl = `https://${dist.distributionDomainName}`;
     }
-    const origins_ = [...p.appOrigins, ...(appUrl ? [appUrl] : [])];
+    // appOrigins may include a path (https://user.github.io/head-tremor): CORS needs the origin, Cognito the full URL
+    const appUrls = [...p.appOrigins, ...(appUrl ? [appUrl] : [])].map((u) => u.replace(/\/+$/, ''));
+    const origins_ = [...new Set(appUrls.map((u) => new URL(u).origin))];
 
     // ---------------- auth: user pool (email sign-up) + identity pool (live MQTT in the browser) ----------------
     const pool = new cognito.UserPool(this, 'Users', {
@@ -157,7 +159,7 @@ export class TremorStack extends Stack {
     const client = pool.addClient('App', {
       generateSecret: false,
       authFlows: { userSrp: true, adminUserPassword: true },          // adminUserPassword: only for scripts run with deployer credentials (cloud e2e)
-      oAuth: { flows: { authorizationCodeGrant: true }, scopes: [cognito.OAuthScope.OPENID, cognito.OAuthScope.EMAIL, cognito.OAuthScope.PROFILE], callbackUrls: origins_.map((o) => `${o}/`), logoutUrls: origins_.map((o) => `${o}/`) },
+      oAuth: { flows: { authorizationCodeGrant: true }, scopes: [cognito.OAuthScope.OPENID, cognito.OAuthScope.EMAIL, cognito.OAuthScope.PROFILE], callbackUrls: appUrls.map((u) => `${u}/`), logoutUrls: appUrls.map((u) => `${u}/`) },
       idTokenValidity: Duration.hours(1), accessTokenValidity: Duration.hours(1), refreshTokenValidity: Duration.days(30),
       preventUserExistenceErrors: true,
     });
@@ -209,16 +211,12 @@ export class TremorStack extends Stack {
       });
     }
 
-    // ---------------- app deployment with runtime config ----------------
+    // ---------------- app deployment (the app is configured with the link from tools/aws/app-link.mjs, not a config file) ----------------
     if (bucket && dist) {
       new s3deploy.BucketDeployment(this, 'AppDeploy', {
         destinationBucket: bucket, distribution: dist, distributionPaths: ['/*'], memoryLimit: 256,
         sources: [
           s3deploy.Source.asset(path.join(here, '../../app/dist')),
-          s3deploy.Source.jsonData('config.json', {
-            region: Aws.REGION, apiUrl: api.apiEndpoint, userPoolId: pool.userPoolId, clientId: client.userPoolClientId, identityPoolId: idPool.ref,
-            cognitoDomain: `${domain.domainName}.auth.${Aws.REGION}.amazoncognito.com`,
-          }),
         ],
       });
     }

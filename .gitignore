@@ -22,6 +22,7 @@ cdk.out/
 *.tsbuildinfo
 tools/hostsim/bin/
 tools/hostsim/out/
+tools/devsim/out/
 *.exe
 *.o
 

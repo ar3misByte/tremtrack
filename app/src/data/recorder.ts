@@ -99,7 +99,7 @@ class Recorder {
     }
     if (!this.tracker) {
       const kind = live.sourceKind;
-      if (!kind) return;
+      if (!kind || kind === 'cloud') return;     // a remote view is not recorded locally: its data lives in the cloud
       this.tracker = new SessionTracker(kind as Source, t, useSettings.getState().sensitivity, this.context());
       this.sessionEps = [];
       this.lastFlush = t;

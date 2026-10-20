@@ -32,6 +32,25 @@ TwoWire Wire;
 #error "define SKETCH as the quoted path of the .ino to test"
 #endif
 #include SKETCH
+#ifdef HTM_HAVE_FRAME_HOOK
+#include "../../firmware/tremor_monitor/reporter.h"
+// --cloud FILE: run the firmware's cloud reporter on every frame and write what it would publish
+// (one JSON object per line: {"kind":"frame","t":ms} / {"kind":"telemetry"|"event","msg":{...}}).
+// tools/hostsim/cloud-check.mjs compares this with the TypeScript reference implementation.
+static FILE *cloudOut = nullptr;
+static htm::Reporter cloudRep;
+static bool cloudStarted = false;
+static const uint64_t CLOUD_BASE_MS = 1800000000000ULL;     // 2027-01-15, inside the protocol's valid range
+static void cloudEmit(void *, int kind, const char *json) {
+  fprintf(cloudOut, "{\"kind\":\"%s\",\"msg\":%s}\n", kind == htm::MSG_TELEMETRY ? "telemetry" : "event", json);
+}
+static void cloudFrame(const HtmFrame &f) {
+  uint64_t t = CLOUD_BASE_MS + hostsim::nowUs / 1000ULL;
+  if (!cloudStarted) { cloudRep.begin(t, cloudEmit, nullptr); cloudStarted = true; }
+  fprintf(cloudOut, "{\"kind\":\"frame\",\"t\":%llu}\n", (unsigned long long)t);
+  cloudRep.push(f, t);
+}
+#endif
 
 // =====================================================================================
 namespace hostsim {
@@ -70,6 +89,9 @@ struct Scenario {
   double fingerOff0 = -1, fingerOff1 = -1;   // finger removed in this window
   bool ppg = true;
   double bpm = 72;
+  bool rotate = false;             // two slow full turns about the vertical axis from t = 2 s (compass calibration)
+  double turnsFrom = 0;            // random head turns start this many seconds in
+  double biasRamp = 0;             // yaw gyro bias grows by this many dps per second after start-up (temperature drift)
 };
 
 // ---------- motion state, built from a seed ----------
@@ -90,8 +112,9 @@ struct Motion {
     rng.seed(seed * 7919u + 17u);
     for (double &p : vph) p = U(0, 2 * M_PI);
     for (double &p : trPh) p = U(0, 2 * M_PI);
+    if (sc.rotate) for (int i = 0; i < 8; i++) steps.push_back({ 2.0 + 3.0 * i, 2.5, 2, 90.0 });
     if (sc.turns) {
-      double t = U(1, 3);
+      double t = sc.turnsFrom + U(1, 3);
       while (t < sc.dur) {
         int kind = (int)U(0, 3);                        // 0 turn (yaw), 1 nod (pitch), 2 tilt (roll)
         int axis = kind == 0 ? 2 : (kind == 1 ? 0 : 1);
@@ -240,7 +263,7 @@ struct Mpu6050 : I2CDevice {
       double rate[3];
       for (int k = 0; k < 3; k++) rate[k] = (a1[k] - a0[k]) / (2 * h);
       rate[0] += M.sc.crossTalk * rate[2];
-      for (int k = 0; k < 3; k++) gyro[k] = rate[k] + bias[k] + 0.05 * nd(rng);
+      for (int k = 0; k < 3; k++) gyro[k] = rate[k] + bias[k] + (k == 2 ? M.sc.biasRamp * std::max(0.0, t - WARM) : 0.0) + 0.05 * nd(rng);   // biasRamp: slow yaw-gyro drift after the start-up calibration
       double p = ac[0] * D2R, r = ac[1] * D2R;
       double gv[3] = { -sin(r), sin(p) * cos(r), cos(p) * cos(r) };
       for (int k = 0; k < 3; k++) acc[k] = gv[k] * (gc + vc) + 0.003 * nd(rng);
@@ -259,6 +282,50 @@ struct Mpu6050 : I2CDevice {
       return 14;
     }
     for (int i = 0; i < n; i++) out[i] = regs[(ptr + i) & 0x7F];
+    return n;
+  }
+};
+
+// ---------- synthetic QMC5883P compass ----------
+// Earth's field (horizontal H, inclination INCL) seen from the board's true orientation (the same truth the MPU6050
+// is driven by), then hard-iron offset, soft-iron scale and noise, in LSB at +/-8 G (3750 LSB/G).
+struct Qmc5883p : I2CDevice {
+  uint8_t regs[16] = {};
+  uint8_t ptr = 0;
+  std::mt19937 rng{ 4242 };
+  std::normal_distribution<double> nd{ 0.0, 1.0 };
+  double H = 0.40, INCL = 35.0 * M_PI / 180.0, heading0 = 50.0;      // gauss, rad, deg: the world's "north" relative to the starting yaw
+  double off[3] = { 420, -310, 180 }, sc[3] = { 1.08, 0.93, 1.0 };   // hard iron (LSB), soft iron
+  bool mirror = false, swapXY = false, rotYZ = false;   // rotYZ: the chip is mounted turned 90 degrees about X (its Z axis lies along the board's Y)
+  double dT0 = -1, dT1 = -1, dist[3] = { 0, 0, 0 };                  // magnetic disturbance (gauss) between two scenario times
+  long reads = 0;
+  Qmc5883p() { regs[0] = 0x80; }
+  void write(const uint8_t *d, int n) override { ptr = d[0] & 0x0F; for (int i = 1; i < n; i++) regs[ptr++ & 0x0F] = d[i]; }
+  int read(uint8_t *out, int n) override {
+    if (ptr == 0x01 && n == 6) {
+      reads++;
+      double t = nowUs * 1e-6, a[3], v, g;
+      M.angles(t, a, v, g);
+      double p = a[0] * D2R, r = a[1] * D2R, psi = (a[2] + heading0) * D2R;
+      double bl[3] = { H * cos(psi), -H * sin(psi), -H * tan(INCL) };      // level frame: north component H, vertical component down
+      double b1[3] = { bl[0] * cos(-r) + bl[2] * sin(-r), bl[1], -bl[0] * sin(-r) + bl[2] * cos(-r) };            // Ry(-r)
+      double bb[3] = { b1[0], b1[1] * cos(-p) - b1[2] * sin(-p), b1[1] * sin(-p) + b1[2] * cos(-p) };               // Rx(-p)
+      double tr = t - WARM;
+      if (tr >= dT0 && tr < dT1) for (int k = 0; k < 3; k++) bb[k] += dist[k];
+      double x = bb[0], y = bb[1], z = bb[2];
+      if (mirror) y = -y;
+      if (swapXY) std::swap(x, y);
+      if (rotYZ) { double ny = z, nz = -y; y = ny; z = nz; }
+      double vals[3] = { x, y, z };
+      for (int k = 0; k < 3; k++) {
+        double lsb = std::round((vals[k] * sc[k]) * 3750.0 + off[k] + 7.5 * nd(rng));
+        lsb = std::max(-32768.0, std::min(32767.0, lsb));
+        int16_t q = (int16_t)lsb;
+        out[2 * k] = (uint8_t)(q & 0xFF); out[2 * k + 1] = (uint8_t)((uint16_t)q >> 8);
+      }
+      return 6;
+    }
+    for (int i = 0; i < n; i++) out[i] = (ptr + i == 0x09) ? 1 : regs[(ptr + i) & 0x0F];   // status: data always ready
     return n;
   }
 };
@@ -309,6 +376,7 @@ std::vector<Scenario> scenarios() {
   { Scenario s; s.name = "combo_partial"; s.desc = "No-no 5 Hz 12 dps for 30 s; yes-yes joins for the middle 10 s"; s.dur = 50; s.coherent = true; s.tremors = { { 2, 5.0, 12, 10, 40 }, { 0, 5.0, 9, 20, 30 } }; add(s); }
   { Scenario s; s.name = "crosstalk_no_15deg"; s.desc = "Pure no-no 5 Hz 12 dps, board tilted 15 deg (26 % leaks into pitch): must stay single-axis"; s.dur = 50; s.crossTalk = 0.26; s.tremors = { { 2, 5.0, 12, 10, 40 } }; add(s); }
   { Scenario s; s.name = "fall"; s.desc = "Still, free fall 0.35 s, ~9 g impact, lying still"; s.dur = 30; s.fall = true; s.fallT = 10; add(s); }
+  { Scenario s; s.name = "compass_session"; s.desc = "Compass calibration turns (0-26 s), then random head turns and sitting still (150 s); use with --mag"; s.dur = 150; s.rotate = true; s.turns = true; s.turnsFrom = 30; s.biasRamp = 0.004; add(s); }
   { Scenario s; s.name = "showcase"; s.desc = "Demo recording: still, no-no tremor, walking, yes-yes + no-no together, finger off, a fall (130 s)"; s.dur = 130;
     s.walk = true; s.stepHz = 1.9; s.walkT0 = 36; s.walkT1 = 56; s.coherent = true;
     s.tremors = { { 2, 5.2, 12, 10, 28 }, { 2, 4.8, 12, 62, 78 }, { 0, 4.8, 9, 62, 78 } }; s.fingerOff0 = 88; s.fingerOff1 = 100;
@@ -329,7 +397,9 @@ struct Frame { double t; std::vector<double> f; };
 // =====================================================================================
 int main(int argc, char **argv) {
   using namespace hostsim;
-  std::string name, csvPath;
+  std::string name, csvPath, cloudPath, magReport;
+  bool magOn = false, magMirror = false, magSwap = false, magRot = false;
+  double magCalAt = -1, magDist[5] = { -1, -1, 0, 0, 0 };
   unsigned seed = 1;
   int sens = 2;
   bool realtime = false;
@@ -340,6 +410,14 @@ int main(int argc, char **argv) {
     else if (a == "--seed") seed = (unsigned)std::stoul(next());
     else if (a == "--sens") sens = std::stoi(next());
     else if (a == "--csv") csvPath = next();
+    else if (a == "--cloud") cloudPath = next();
+    else if (a == "--mag") magOn = true;                     // a QMC5883P is fitted
+    else if (a == "--mag-mirror") magMirror = true;          // its Y axis points the other way
+    else if (a == "--mag-swap") magSwap = true;              // its X and Y are swapped (a mirror image too)
+    else if (a == "--mag-rot") magRot = true;                // mounted turned 90 degrees about X: cannot work
+    else if (a == "--mag-cal-at") magCalAt = std::stod(next());   // send "!mag start" at this scenario time (s)
+    else if (a == "--mag-disturb") { std::string v = next(); sscanf(v.c_str(), "%lf,%lf,%lf,%lf,%lf", &magDist[0], &magDist[1], &magDist[2], &magDist[3], &magDist[4]); }   // t0,t1,gx,gy,gz (gauss)
+    else if (a == "--mag-report") magReport = next();        // write yaw-error figures here
     else if (a == "--realtime") realtime = true;
     else if (a == "--list") {
       for (auto &s : scenarios()) printf("%s\t%g\t%s\n", s.name.c_str(), s.dur, s.desc.c_str());
@@ -357,8 +435,15 @@ int main(int argc, char **argv) {
   mpu.rng.seed(seed * 31u + 7u);
   prng.seed(seed * 131u + 3u);
   Wire.devices[0x68] = &mpu;
+  Qmc5883p qmc;
+  qmc.mirror = magMirror; qmc.swapXY = magSwap; qmc.rotYZ = magRot;
+  qmc.dT0 = magDist[0]; qmc.dT1 = magDist[1]; for (int k = 0; k < 3; k++) qmc.dist[k] = magDist[2 + k];
+  if (magOn) Wire.devices[0x2C] = &qmc;
 
   FILE *csv = csvPath.empty() ? nullptr : fopen(csvPath.c_str(), "w");
+#ifdef HTM_HAVE_FRAME_HOOK
+  if (!cloudPath.empty()) { cloudOut = fopen(cloudPath.c_str(), "w"); htmFrameHook = cloudFrame; }
+#endif
   setup();
   if (sens != 2) { Serial.rx.push_back((char)('0' + sens)); }
 
@@ -367,7 +452,9 @@ int main(int argc, char **argv) {
   std::string pending;
   auto wall0 = std::chrono::steady_clock::now();
   double simT0 = nowUs * 1e-6;
+  bool calSent = false;
   while (nowUs * 1e-6 < END) {
+    if (magCalAt >= 0 && !calSent && nowUs * 1e-6 >= WARM + magCalAt) { for (const char *c = "!mag start\n"; *c; c++) Serial.rx.push_back(*c); calSent = true; }
     loop();
     nowUs += 250;
     if (!Serial.out.empty()) {
@@ -397,7 +484,32 @@ int main(int argc, char **argv) {
     }
   }
   if (csv) fclose(csv);
+#ifdef HTM_HAVE_FRAME_HOOK
+  if (cloudOut) fclose(cloudOut);
+#endif
   if (realtime) return 0;
+
+  if (!magReport.empty()) {
+    // yaw error against the true yaw (both start at 0). Fields: 2 yaw, 23 compass state (0 none, 1 uncalibrated, 2 ignored, 3 correcting, 4 calibrating)
+    double endErr = 0, maxErrAfter = 0, calDone = -1, errAtDone = 0, rms = 0; long nr = 0; int prevQ = 0; double lastT = 0;
+    std::string series; double nextS = 0;
+    for (auto &fr : frames) {
+      if (fr.f.size() < 3) continue;
+      double a[3], v, g; M.angles(fr.t, a, v, g);
+      double err = fr.f[2] - a[2];
+      int q = fr.f.size() > 23 ? (int)fr.f[23] : 0;
+      if (prevQ == 4 && q != 4 && calDone < 0) { calDone = fr.t - WARM; errAtDone = err; }
+      prevQ = q;
+      if (calDone >= 0 && fr.t - WARM > calDone + 5) { maxErrAfter = std::max(maxErrAfter, fabs(err)); rms += err * err; nr++; }
+      if (fr.t - WARM >= nextS) { char tmp[64]; snprintf(tmp, sizeof tmp, "%s[%.0f,%.1f,%d]", series.empty() ? "" : ",", fr.t - WARM, err, q); series += tmp; nextS += 5; }
+      endErr = err; lastT = fr.t;
+    }
+    FILE *rp = fopen(magReport.c_str(), "w");
+    if (rp) {
+      fprintf(rp, "{\"calDoneAt\":%.1f,\"yawErrAtCalDone\":%.2f,\"yawErrMaxAfter\":%.2f,\"yawErrRmsAfter\":%.2f,\"yawErrEnd\":%.2f,\"lastT\":%.1f,\"series\":[%s]}\n", calDone, errAtDone, maxErrAfter, nr ? sqrt(rms / nr) : 0.0, endErr, lastT - WARM, series.c_str());
+      fclose(rp);
+    }
+  }
 
   // fields (0-based after '$'): 6 tremor, 7 dir, 11 freq, 13 walking, 16 bpm, 17 spo2, 18 ppgState
   const double MEASURE_FROM = WARM + 1.0, ONSET_GRACE = 2.5, OFF_GRACE = 2.5;

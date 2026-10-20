@@ -20,7 +20,21 @@ This app handles health-related personal data: head-motion patterns, heart rate,
 
 Without cloud sign-in, nothing is sent to any server. Exports (JSON/CSV) are created in the browser and saved where you choose. The service worker caches only the app's own files and the bundled demo recording, for offline use. Data stored by a browser on a shared computer is readable by anyone using that browser profile.
 
-## Cloud (milestone 6: backend built; the app connects to it from milestone 7)
+## Headset and phone link (milestone 7)
+
+| Data | Where | Notes |
+|---|---|---|
+| Wi-Fi network name and password you enter in Settings → Headset | sent once to the headset, stored in the **headset's flash memory**; not kept by the app (the field is cleared after sending) | sent over Bluetooth **unencrypted**, within a few metres, only while the headset accepts setup (first 10 minutes after power-up; always over USB). `!forget` over USB deletes it |
+| Compass calibration (offsets and scale, no location) | headset flash | `!mag clear` forgets it |
+| Bluetooth pairing | none: the app picks the headset by its service each time; Chrome remembers the permission per site | clear in Chrome's site settings |
+| Cloud sign-in tokens (ID, access and refresh token) | this browser's `localStorage` | readable by script on this origin (the app loads no third-party scripts); deleted by **Sign out** |
+| Cloud setup (pool ids, addresses; nothing secret) | `localStorage` | deleted by *Forget this cloud setup* |
+| Time of last sync, "include medications" choice | `localStorage` | |
+| Remote live view | memory only; **not saved on the phone** | |
+
+Android lists Bluetooth scanning under "Location" on Android 11 and older; the app never reads your location.
+
+## Cloud (milestone 6 backend, used by the app from milestone 7)
 
 The cloud is **optional**. The app works fully signed out, and nothing leaves the phone unless you sign in and connect a headset to Wi-Fi. When you use it, data is stored in **your own AWS account** in `ap-south-1` (Mumbai, India); nobody else operates this backend.
 
@@ -44,6 +58,8 @@ The cloud is **optional**. The app works fully signed out, and nothing leaves th
 - **Credentials:** the browser gets temporary credentials (1 h) from the identity pool. No long-lived AWS keys exist in the app or the firmware.
 - **API:** requires a Cognito ID token, accepts only the configured origins (CORS), and is rate-limited.
 
-**What is not covered yet:** `DELETE /v1/me` removes data in DynamoDB and, optionally, the Cognito user. It does not remove IoT things; use the deprovision script for that. No DynamoDB backups or point-in-time recovery are enabled, so deleted items are not kept anywhere else, apart from the 7-day logs above. Wiring cloud deletion into the app's "Delete all my data" comes with the sign-in work in milestone 7.
+**Deleting.** Cloud screen → *Delete my cloud data* (or *and account*) calls `DELETE /v1/me`: every telemetry, event, day summary and synced record under your identity, and the link between your sign-in and your identity (and the Cognito user if you chose that). It does not remove IoT things or certificates; use `tools/aws/deprovision-device.mjs` for that. No DynamoDB backups or point-in-time recovery are enabled, so deleted items are not kept anywhere else, apart from the 7-day logs above. Settings → *Delete all my data* deletes only this device's data.
+
+**Sync is manual and selective.** Nothing is uploaded unless you press *Sync now*. Demo, replay and sample data are never uploaded. Medication names, doses and the dose log are uploaded only if you tick the box.
 
 **Not a medical service:** alerts are best-effort emails from a prototype. They can be late, duplicated or missed, and must not be relied on for safety.

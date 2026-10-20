@@ -62,6 +62,22 @@
 
 #include <Wire.h>
 #include "MAX30105.h"      // SparkFun MAX3010x library (its MAX30105 class also drives the MAX30102)
+#include "frame.h"
+#include "mag.h"
+#ifndef HTM_HOSTSIM
+#include <Preferences.h>
+#endif
+#ifdef HTM_HOSTSIM
+// The host simulator has no radio: the link layer is a stub that only lets the simulator see the frames.
+inline void htmLinkBegin() {}
+inline void htmLinkPush(const HtmFrame &f) { if (htmFrameHook) htmFrameHook(f); }
+inline void htmLinkStatus(const char *fmt, ...) { char b[120]; va_list ap; va_start(ap, fmt); vsnprintf(b, sizeof b, fmt, ap); va_end(ap); Serial.print("# "); Serial.println(b); }
+bool htmCoreCommand(const char *line);
+inline void htmLinkCommand(const char *l) { htmCoreCommand(l); }
+inline void htmLinkSensitivity(int) {}
+#else
+#include "link.h"          // Bluetooth LE, LAN WebSocket, AWS IoT MQTT (needs the libraries listed in firmware/README.md)
+#endif
 
 // ----------------------------- Hardware ---------------------------
 #define SDA_PIN  21
@@ -137,6 +153,20 @@ void setSensitivity(int lvl) {
   AMP_ON_DPS = v[0]; AMP_OFF_DPS = v[1]; Q_ON = v[2]; Q_OFF = v[3]; STEADY_ON = v[4]; STEADY_OFF = v[5];
   REP_RHO1_ON = v[6]; REP_RHO1_OFF = v[7]; REP_RHO2_ON = v[8]; REP_RHO2_OFF = v[9];
   CV_MAX_ON = v[10]; CV_MAX_OFF = v[11]; CYC_MIN_ON = (int)v[12]; CYC_MIN_OFF = (int)v[13]; CYC_FRAC_MIN = v[14];
+}
+// Commands from any channel (USB, Bluetooth, WebSocket, cloud). They only set flags: the sampling loop applies them,
+// because the network task and the loop run on different cores.
+volatile int  cmdSens = 0;
+volatile bool cmdRecenter = false;
+volatile int cmdMag = 0;               // 1 start compass calibration, 2 cancel, 3 forget it
+bool htmCoreCommand(const char *line) {
+  if (line[0] >= '1' && line[0] <= '5' && (line[1] == 0 || line[1] == '\n' || line[1] == '\r')) { cmdSens = line[0] - '0'; return true; }
+  if (!strncmp(line, "!sens ", 6) && line[6] >= '1' && line[6] <= '5') { cmdSens = line[6] - '0'; return true; }
+  if (!strcmp(line, "!recenter")) { cmdRecenter = true; return true; }
+  if (!strcmp(line, "!mag start")) { cmdMag = 1; return true; }
+  if (!strcmp(line, "!mag stop")) { cmdMag = 2; return true; }
+  if (!strcmp(line, "!mag clear")) { cmdMag = 3; return true; }
+  return false;
 }
 const uint32_t ANALYSIS_MS = 100;
 const uint32_t SETTLE_MS   = 1500;       // after calibration
@@ -757,6 +787,50 @@ void calibrate() {
   yawDeg = 0;
 }
 
+// ----------------------------- Compass (QMC5883P) -----------------------------
+htm::Compass compass;
+uint32_t lastMagMs = 0;
+void writeRegAt(uint8_t addr, uint8_t reg, uint8_t val) { Wire.beginTransmission(addr); Wire.write(reg); Wire.write(val); Wire.endTransmission(); }
+int readRegAt(uint8_t addr, uint8_t reg) {
+  Wire.beginTransmission(addr); Wire.write(reg);
+  if (Wire.endTransmission(false) != 0) return -1;
+  if (Wire.requestFrom((int)addr, 1) != 1) return -1;
+  return Wire.read();
+}
+
+bool magBegin() {
+  Wire.beginTransmission(HTM_MAG_ADDR);
+  if (Wire.endTransmission() != 0) return false;
+  if (readRegAt(HTM_MAG_ADDR, 0x00) != 0x80) return false;       // chip id
+  writeRegAt(HTM_MAG_ADDR, 0x0B, 0x08);                          // +/-8 G, set/reset on
+  writeRegAt(HTM_MAG_ADDR, 0x0A, 0x0B);                          // continuous mode, 100 Hz, 8x oversampling
+  return true;
+}
+/** One sample in LSB, mapped to the MPU6050 axes. false = nothing new. */
+bool magRead(float b[3]) {
+  if (!(readRegAt(HTM_MAG_ADDR, 0x09) & 1)) return false;        // data ready
+  Wire.beginTransmission(HTM_MAG_ADDR); Wire.write(0x01); Wire.endTransmission(false);
+  if (Wire.requestFrom((int)HTM_MAG_ADDR, 6) != 6) return false;
+  int16_t v[3];
+  for (int k = 0; k < 3; k++) { uint8_t lo = Wire.read(), hi = Wire.read(); v[k] = (int16_t)((hi << 8) | lo); }
+  float x = v[0], y = v[1], z = v[2];
+#if HTM_MAG_SWAP_XY
+  { float t = x; x = y; y = t; }
+#endif
+  b[0] = HTM_MAG_FLIP_X ? -x : x; b[1] = HTM_MAG_FLIP_Y ? -y : y; b[2] = HTM_MAG_FLIP_Z ? -z : z;
+  return true;
+}
+#ifndef HTM_HOSTSIM
+void magSave() { Preferences p; p.begin("htmmag", false); p.putBytes("cal", &compass.cal, sizeof compass.cal); p.end(); }
+void magForget() { Preferences p; p.begin("htmmag", false); p.clear(); p.end(); }
+void magLoad() { Preferences p; p.begin("htmmag", true); if (p.getBytesLength("cal") == sizeof(htm::MagCal)) { htm::MagCal c; p.getBytes("cal", &c, sizeof c); compass.setCalibration(c); } p.end(); }
+#else
+void magSave() {}
+void magForget() {}
+void magLoad() {}
+#endif
+int htmMagState() { return compass.calibrating ? 4 : compass.quality; }
+
 // ----------------------------- Output -----------------------------
 void sendFrame() {
   bool ready = (filled == WIN) && (millis() - bootMs > SETTLE_MS);
@@ -764,21 +838,28 @@ void sendFrame() {
   for (int i = 1; i < 3; i++) if (axs[i].amp > axs[dom].amp) dom = i;
   int d = tremor ? dirAxis : dom;
 
-  Serial.printf("$,%.1f,%.1f,%.1f,%.2f,%.2f,%.2f,%d,%d,%.1f,%.1f,%.1f,%.1f,%.2f,%d,%.2f,%d,%d,%d,%d,%.1f,%d,%.2f,%.2f\n",
-                angP, angR, yawDeg,
-                axs[0].filt, axs[1].filt, axs[2].filt,
-                tremor ? 1 : 0, d,
-                ready ? axs[0].amp : 0.0f,
-                ready ? axs[1].amp : 0.0f,
-                ready ? axs[2].amp : 0.0f,
-                ready ? axs[d].freq : 0.0f,
-                ready ? axs[d].q : 0.0f,
-                walking ? 1 : 0, walking ? stepHz : 0.0f,
-                ready ? axs[d].cycles : 0,
-                (ppgState == 3) ? (int)lroundf(bpmVal) : 0, (ppgState == 3) ? (int)lroundf(spo2Val) : 0,
-                ppgState, pulseOut,
-                axesMask(), lineAMax, lineAMin > 50 ? 0.0f : lineAMin);
+  HtmFrame f;                                        // values rounded to the precision they are printed with
+  f.pitch = htmRound(angP, 10); f.roll = htmRound(angR, 10); f.yaw = htmRound(yawDeg, 10);
+  f.fP = htmRound(axs[0].filt, 100); f.fR = htmRound(axs[1].filt, 100); f.fY = htmRound(axs[2].filt, 100);
+  f.tremor = tremor ? 1 : 0; f.dir = (uint8_t)d;
+  f.ampP = ready ? htmRound(axs[0].amp, 10) : 0.0f;
+  f.ampR = ready ? htmRound(axs[1].amp, 10) : 0.0f;
+  f.ampY = ready ? htmRound(axs[2].amp, 10) : 0.0f;
+  f.freq = ready ? htmRound(axs[d].freq, 10) : 0.0f;
+  f.q = ready ? htmRound(axs[d].q, 100) : 0.0f;
+  f.walking = walking ? 1 : 0; f.stepHz = walking ? htmRound(stepHz, 100) : 0.0f;
+  f.cycles = ready ? axs[d].cycles : 0;
+  f.bpm = (ppgState == 3) ? (int)lroundf(bpmVal) : 0; f.spo2 = (ppgState == 3) ? (int)lroundf(spo2Val) : 0;
+  f.ppgState = ppgState; f.pulse = htmRound(pulseOut, 10);
+  f.axes = axesMask();
+  f.aMax = htmRound(lineAMax, 100); f.aMin = htmRound(lineAMin > 50 ? 0.0f : lineAMin, 100);
+  f.magq = htmMagState();
   lineAMax = 0; lineAMin = 99;
+
+  char line[200];
+  htmFormatFrame(line, sizeof line, f);
+  Serial.print(line);
+  htmLinkPush(f);
 }
 
 // ----------------------------- Setup ------------------------------
@@ -814,11 +895,16 @@ void setup() {
   } else {
     Serial.println("# MAX30102 not found at 0x57: heart rate and SpO2 disabled");
   }
+  compass.present = magBegin();
+  compass.quality = compass.present ? 1 : 0;
+  if (compass.present) { magLoad(); Serial.printf("# QMC5883P compass OK (%s)\n", compass.calibrated ? "calibrated" : "not calibrated: send !mag start, see docs/ORIENTATION.md"); }
+  else Serial.println("# QMC5883P compass not found at 0x2C: yaw comes from the gyro only (it drifts slowly)");
   initDSP();
   Serial.println("# Calibrating: keep the board still for 2 seconds...");
   calibrate();
   Serial.printf("# Board noise (dps): %.2f %.2f %.2f   sensitivity %d (send 1-5 to change)\n", noiseFloor[0], noiseFloor[1], noiseFloor[2], sensLevel);
   Serial.println("# Streaming");
+  htmLinkBegin();
 
   bootMs = millis();
   nextUs = micros();
@@ -860,10 +946,42 @@ void loop() {
   }
 
   uint32_t ms = millis();
+  if (compass.present && ms - lastMagMs >= 20) {
+    float dt = (ms - lastMagMs) * 0.001f;
+    lastMagMs = ms;
+    float b[3];
+    if (magRead(b)) compass.feed(b, angP, angR, yawDeg, dt > 0.2f ? 0.2f : dt, ms);
+  }
   ppgPoll(ms);
+  static char cmdBuf[160]; static size_t cmdN = 0;
   while (Serial.available()) {
     int c = Serial.read();
-    if (c >= '1' && c <= '5') { setSensitivity(c - '0'); Serial.printf("# Sensitivity %d\n", sensLevel); }
+    if (cmdN == 0 && c >= '1' && c <= '5') { cmdSens = c - '0'; continue; }
+    if (cmdN == 0 && c != '!') continue;             // line commands start with '!'
+    if (c == '\n' || c == '\r') { if (cmdN) { cmdBuf[cmdN] = 0; htmLinkCommand(cmdBuf); } cmdN = 0; }
+    else if (cmdN < sizeof cmdBuf - 1) cmdBuf[cmdN++] = (char)c;
+  }
+  if (cmdSens) {
+    int lvl = cmdSens; cmdSens = 0;
+    setSensitivity(lvl);
+    htmLinkStatus("Sensitivity %d", sensLevel);
+    htmLinkSensitivity(sensLevel);
+  }
+  if (cmdRecenter) { cmdRecenter = false; yawDeg = 0; compass.reanchor(); htmLinkStatus("Yaw recentred"); }
+  if (cmdMag) {
+    int c = cmdMag; cmdMag = 0;
+    if (!compass.present) htmLinkStatus("MAG not fitted");
+    else if (c == 1) { compass.startCalibration(yawDeg, ms); htmLinkStatus("MAG calibrating: turn the headset slowly, level, through one or two full circles"); }
+    else if (c == 2) { compass.cancelCalibration(); }
+    else if (c == 3) { compass.clear(); magForget(); htmLinkStatus("MAG calibration deleted"); }
+  }
+  if (compass.calibrating) {
+    static int lastShown = -1;
+    if (compass.progress / 10 != lastShown) { lastShown = compass.progress / 10; htmLinkStatus("MAG progress %d%%", compass.progress); }
+  }
+  if (compass.finishedFlag()) {
+    htmLinkStatus("MAG %s", compass.message());
+    if (compass.calibrated) magSave();
   }
 
   if (filled == WIN && ms - lastAnalysis >= ANALYSIS_MS) {

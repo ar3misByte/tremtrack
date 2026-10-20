@@ -9,8 +9,9 @@ const html = readFileSync(dist + 'index.html', 'utf8');
 const initialFiles = new Set([...html.matchAll(/(?:src|href)="\/?assets\/([^"]+\.(?:js|css))"/g)].map((m) => m[1]));
 // report: jsPDF loads only when a PDF is made; html2canvas / DOMPurify / canvg are jsPDF's optional chunks for its
 // HTML and SVG import, which this app never calls, so they are built but not downloaded.
-const BUDGET_KB = { initialJs: 110, lazy3d: 280, lazyOther: 80, report: 140, reportUnused: 120, css: 20 };
-let initialJs = 0, lazy3d = 0, lazyOther = 0, report = 0, reportUnused = 0, css = 0;
+// cloud: the MQTT client (mqtt.js) loads only when someone watches a headset through the cloud
+const BUDGET_KB = { initialJs: 110, lazy3d: 280, lazyOther: 80, report: 140, reportUnused: 120, cloudLib: 110, css: 20 };
+let initialJs = 0, lazy3d = 0, lazyOther = 0, report = 0, reportUnused = 0, cloudLib = 0, css = 0;
 for (const f of readdirSync(dist + 'assets')) {
   const kb = gzipSync(readFileSync(dist + 'assets/' + f)).length / 1024;
   if (f.endsWith('.css')) css += kb;
@@ -18,10 +19,11 @@ for (const f of readdirSync(dist + 'assets')) {
   else if (initialFiles.has(f)) initialJs += kb;
   else if (/^(three|Head3D)-/.test(f)) lazy3d += kb;
   else if (/^pdf-/.test(f)) report += kb;
+  else if (/^mqtt/.test(f)) cloudLib += kb;
   else if (/^(html2canvas|purify.es|index.es)-/.test(f)) reportUnused += kb;
   else lazyOther += kb;
 }
-const rows = [['initial JS', initialJs, BUDGET_KB.initialJs], ['3D (lazy)', lazy3d, BUDGET_KB.lazy3d], ['screens (lazy)', lazyOther, BUDGET_KB.lazyOther], ['report (lazy)', report, BUDGET_KB.report], ['jsPDF unused', reportUnused, BUDGET_KB.reportUnused], ['CSS', css, BUDGET_KB.css]];
+const rows = [['initial JS', initialJs, BUDGET_KB.initialJs], ['3D (lazy)', lazy3d, BUDGET_KB.lazy3d], ['screens (lazy)', lazyOther, BUDGET_KB.lazyOther], ['report (lazy)', report, BUDGET_KB.report], ['jsPDF unused', reportUnused, BUDGET_KB.reportUnused], ['MQTT (lazy)', cloudLib, BUDGET_KB.cloudLib], ['CSS', css, BUDGET_KB.css]];
 let ok = true;
 for (const [n, v, b] of rows) { console.log(`${n.padEnd(15)} ${v.toFixed(1).padStart(7)} KB gz  (budget ${b})`); if (v > b) ok = false; }
 if (!ok) { console.error('size budget exceeded'); process.exit(1); }

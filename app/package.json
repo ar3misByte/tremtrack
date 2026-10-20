@@ -15,9 +15,12 @@
     "screenshots": "node scripts/screenshots.mjs",
     "e2e:local": "node scripts/e2e-local.mjs",
     "e2e:history": "node scripts/e2e-history.mjs",
+    "e2e:device": "node scripts/e2e-device.mjs",
     "e2e:fall": "node scripts/e2e-fall.mjs",
     "e2e:log": "node scripts/e2e-log.mjs",
-    "e2e:report": "node scripts/e2e-report.mjs"
+    "e2e:report": "node scripts/e2e-report.mjs",
+    "serve:lan": "vite preview --host --port 4173 --strictPort",
+    "e2e:cloud": "node --import tsx scripts/e2e-cloud.mjs"
   },
   "dependencies": {
     "@fontsource-variable/manrope": "^5.3.0",

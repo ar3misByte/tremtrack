@@ -14,6 +14,7 @@ import { PROMPT_TEXT } from '../logic/posture';
 import { AXIS_LONG, AXIS_SHORT, AXIS_VAR, axesLong, axesShort, fmtDuration, fmtMinutes, fmtPct, fmtScore } from '../logic/labels';
 
 const Head3D = lazy(() => import('../components/Head3D'));
+const CloudNote = lazy(() => import('../components/CloudNote'));
 
 function headline(s: LiveSnapshot): { title: string; sub: string; tone: 'alert' | 'ok' | 'quiet' } {
   const f = s.frame;
@@ -63,6 +64,8 @@ export default function Live({ onConnect }: { onConnect: () => void }) {
           <p>{h.sub}</p>
         </div>
 
+        {s.source === 'cloud' && <Suspense fallback={null}><CloudNote /></Suspense>}
+
         {rec.posturePrompt && (
           <div className="notice prompt" role="status">
             <span>{PROMPT_TEXT[rec.posturePrompt]}</span>
@@ -81,7 +84,7 @@ export default function Live({ onConnect }: { onConnect: () => void }) {
               ? <span className="chip alert">{axesShort(axes)} · {f.freq.toFixed(1)} Hz</span>
               : f ? <span className="chip ok">{f.walking ? 'Walking' : 'Steady'}</span> : <span className="chip quiet">No data</span>}
             {s.tremorActive && s.combo && s.combo.pattern !== 'single' && <span className="chip">{s.combo.pattern === 'independent' ? 'Two rhythms' : s.combo.pattern[0].toUpperCase() + s.combo.pattern.slice(1)}</span>}
-            {(s.source === 'demo' || s.source === 'replay') && <span className="chip quiet">{s.source === 'demo' ? 'Demo' : 'Replay'}</span>}
+            {(s.source === 'demo' || s.source === 'replay' || s.source === 'cloud') && <span className="chip quiet">{s.source === 'demo' ? 'Demo' : s.source === 'replay' ? 'Replay' : 'Cloud'}</span>}
           </div>
           <div className="stage-bottom">
             <div className="segmented" role="group" aria-label="View">

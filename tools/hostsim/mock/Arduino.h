@@ -13,6 +13,7 @@
 #include <cstring>
 #include <string>
 #include <deque>
+#define HTM_HOSTSIM 1
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846

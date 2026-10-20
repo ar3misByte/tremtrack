@@ -3,21 +3,8 @@ import { LineSplitter } from '../logic/csv';
 import { DemoGenerator, scriptAt, type DemoAction, type DemoControls } from '../logic/demoGen';
 import type { Recording } from '../logic/recording';
 
-export type SourceKind = 'serial' | 'websocket' | 'ble' | 'demo' | 'replay';
-export type ConnState = 'idle' | 'connecting' | 'open' | 'error';
-
-export interface SourceCallbacks {
-  line: (line: string) => void;
-  state: (s: ConnState, message?: string) => void;
-}
-
-export interface DeviceSource {
-  readonly kind: SourceKind;
-  start(cb: SourceCallbacks): Promise<void>;
-  stop(): Promise<void>;
-  /** Sends text to the device (sensitivity '1'..'5'). Not all sources support it. */
-  send?(text: string): Promise<void>;
-}
+import type { DeviceSource, SourceCallbacks } from './types';
+export type { ConnState, DeviceSource, SourceCallbacks, SourceKind } from './types';
 
 export const serialSupported = () => typeof navigator !== 'undefined' && 'serial' in navigator;
 export const bleSupported = () => typeof navigator !== 'undefined' && 'bluetooth' in navigator;
@@ -111,13 +98,110 @@ export class WebSocketSource implements DeviceSource {
   }
 }
 
-// ---------- Bluetooth LE (Android Chrome): arrives with the firmware networking milestone ----------
+// ---------- Bluetooth LE (Web Bluetooth: Chrome on Android, or Chrome / Edge on a computer) ----------
+// The firmware exposes a Nordic-UART-style service (firmware/tremor_monitor/link.h): the same '$' lines as USB
+// arrive as notifications, commands go out as writes. A line can span several notifications, so lines are
+// reassembled here.
+export const BLE_UUID = {
+  service: '6e400001-b5a3-f393-e0a9-e50e24dcca9e',
+  rx: '6e400002-b5a3-f393-e0a9-e50e24dcca9e',      // app -> device
+  tx: '6e400003-b5a3-f393-e0a9-e50e24dcca9e',      // device -> app
+};
+export const BLE_CHUNK = 20;                       // the minimum ATT payload; larger writes need the negotiated MTU
+const BLE_RETRIES = 8;
+
 export class BleSource implements DeviceSource {
   readonly kind = 'ble' as const;
-  async start(): Promise<void> {
-    throw new Error('Bluetooth streaming needs the new firmware (milestone 7). Use USB, the simulator, or demo mode for now.');
+  private dev: BluetoothDevice | null = null;
+  private rx: BluetoothRemoteGATTCharacteristic | null = null;
+  private tx: BluetoothRemoteGATTCharacteristic | null = null;
+  private cb: SourceCallbacks | null = null;
+  private stopped = false;
+  private retry = 0;
+  private timer: ReturnType<typeof setTimeout> | null = null;
+  private split = new LineSplitter(65536);
+  private dec = new TextDecoder();
+  private writes: Promise<void> = Promise.resolve();
+
+  /** `getBluetooth` is replaceable so tests can supply a fake. */
+  constructor(private readonly getBluetooth: () => Bluetooth | undefined = () => (typeof navigator !== 'undefined' ? navigator.bluetooth : undefined)) {}
+
+  async start(cb: SourceCallbacks): Promise<void> {
+    const bt = this.getBluetooth();
+    if (!bt) throw new Error('This browser has no Bluetooth access. Use Chrome on Android, or Chrome / Edge on a computer.');
+    this.cb = cb;
+    this.stopped = false;
+    this.retry = 0;
+    cb.state('connecting', 'Choose your headset in the list (it is named HeadTremor-…).');
+    this.dev = await bt.requestDevice({ filters: [{ services: [BLE_UUID.service] }] });
+    this.dev.addEventListener('gattserverdisconnected', this.onDrop);
+    await this.connectGatt();
   }
-  async stop() { /* nothing */ }
+
+  private async connectGatt() {
+    const dev = this.dev!, cb = this.cb!;
+    cb.state('connecting', `Connecting to ${dev.name ?? 'the headset'}…`);
+    const server = await dev.gatt!.connect();
+    const svc = await server.getPrimaryService(BLE_UUID.service);
+    this.tx = await svc.getCharacteristic(BLE_UUID.tx);
+    this.rx = await svc.getCharacteristic(BLE_UUID.rx);
+    this.split = new LineSplitter(65536);
+    this.dec = new TextDecoder();
+    this.tx.addEventListener('characteristicvaluechanged', this.onNotify);
+    await this.tx.startNotifications();
+    this.retry = 0;
+    cb.state('open', `Connected to ${dev.name ?? 'the headset'} over Bluetooth.`);
+  }
+
+  private onNotify = (ev: Event) => {
+    const v = (ev.target as BluetoothRemoteGATTCharacteristic).value;
+    if (!v || !this.cb) return;
+    const text = this.dec.decode(new Uint8Array(v.buffer, v.byteOffset, v.byteLength), { stream: true });
+    for (const l of this.split.push(text)) this.cb.line(l);
+  };
+
+  private onDrop = () => {
+    const cb = this.cb;
+    if (!cb) return;
+    if (this.stopped) { cb.state('idle'); return; }
+    this.reconnect();
+  };
+
+  private reconnect() {
+    const cb = this.cb!;
+    if (this.retry >= BLE_RETRIES) { cb.state('error', 'Bluetooth connection lost. Move closer to the headset and connect again.'); return; }
+    const delay = Math.min(8000, 1000 * 2 ** this.retry);
+    cb.state('connecting', `Bluetooth connection lost. Reconnecting in ${(delay / 1000).toFixed(0)} s (attempt ${this.retry + 1} of ${BLE_RETRIES})…`);
+    this.retry++;
+    this.timer = setTimeout(() => {
+      if (this.stopped) return;
+      this.connectGatt().catch(() => { if (!this.stopped) this.reconnect(); });
+    }, delay);
+  }
+
+  async stop() {
+    this.stopped = true;
+    if (this.timer) clearTimeout(this.timer);
+    this.tx?.removeEventListener('characteristicvaluechanged', this.onNotify);
+    this.dev?.removeEventListener('gattserverdisconnected', this.onDrop);
+    try { this.dev?.gatt?.disconnect(); } catch { /* already disconnected */ }
+    this.cb?.state('idle');
+  }
+
+  /** Writes are queued one after another (a second write while one is pending fails on Android). */
+  send(text: string): Promise<void> {
+    const rx = this.rx;
+    if (!rx) return Promise.reject(new Error('Not connected'));
+    const bytes = new TextEncoder().encode(text.endsWith('\n') ? text : text + '\n');
+    const job = this.writes.then(async () => {
+      for (let i = 0; i < bytes.length; i += BLE_CHUNK) {
+        const part = bytes.slice(i, i + BLE_CHUNK);
+        if (rx.writeValueWithoutResponse) await rx.writeValueWithoutResponse(part); else await rx.writeValue(part);
+      }
+    });
+    this.writes = job.catch(() => undefined);
+    return job;
+  }
 }
 
 // ---------- Demo: synthetic stream, manual controls or the scripted showcase ----------
@@ -148,7 +232,7 @@ export class DemoSource implements DeviceSource {
 
   async stop() { if (this.timer) clearInterval(this.timer); this.timer = null; }
 
-  async send(text: string) { this.onLabel?.(`(demo) sensitivity ${text} would be sent to the device`); }
+  async send(text: string) { this.onLabel?.(`(demo) sensitivity ${text.trim()} would be sent to the device`); }
 }
 
 // ---------- Replay: plays a recorded stream (.rec) in real time, looping ----------

@@ -6,6 +6,7 @@ import { generateSampleHistory } from '../logic/sampleHistory';
 import { summarizeDays } from '../logic/daily';
 import { EPISODES, SESSIONS, SEVERITY, STORAGE } from '../config/thresholds';
 import { live } from '../device/live';
+import HeadsetCard from '../components/HeadsetCard';
 
 type Counts = Awaited<ReturnType<typeof counts>>;
 
@@ -46,6 +47,8 @@ export default function Settings() {
   return (
     <div className="page">
       <div className="hero-text"><h1>Settings</h1><p>Stored in this browser only.</p></div>
+
+      <HeadsetCard />
 
       <section className="card" aria-label="Your data">
         <div className="card-title"><span>Your data</span></div>

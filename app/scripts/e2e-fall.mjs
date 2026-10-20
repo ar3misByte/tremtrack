@@ -29,7 +29,7 @@ try {
   if (focused !== "I'm OK") await fail(`"I'm OK" should have focus, got ${focused}`);
   await page.getByRole('button', { name: "I'm OK" }).click();
   await page.getByRole('button', { name: 'Get up' }).click();
-  await page.waitForTimeout(14000);      // past the 15 s cooldown after the first impact
+  await page.waitForTimeout(17000);      // past the 15 s cooldown, which starts when the first fall is confirmed (about 2.5 s after the impact)
 
   // second fall: let the (shortened, 10 s) countdown run out
   await page.getByRole('button', { name: 'Simulate a fall' }).click();

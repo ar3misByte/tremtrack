@@ -50,8 +50,8 @@ export default function ConnectSheet({ onClose }: { onClose: () => void }) {
         </div>
 
         {opt('serial', <IconUsb />, 'USB cable', serialSupported() ? 'Chrome or Edge on a computer. Close the Arduino Serial Monitor first.' : 'Not available in this browser (needs Chrome or Edge on a computer).', !serialSupported())}
-        {opt('ble', <IconBluetooth />, 'Bluetooth', bleSupported() ? 'Needs the milestone 7 firmware. Android Chrome.' : 'Not available in this browser.', true)}
-        {opt('websocket', <IconWifi />, 'Wi-Fi or simulator', `Streams from ${wsUrl}`)}
+        {opt('ble', <IconBluetooth />, 'Bluetooth (phone)', bleSupported() ? 'Direct link to the headset, no router needed. Chrome on Android, or Chrome / Edge on a computer.' : 'Not available in this browser. Use Chrome on Android.', !bleSupported())}
+        {opt('websocket', <IconWifi />, 'Wi-Fi or simulator', `Streams from ${wsUrl}. The headset prints its address as ws://<ip>:81 once Wi-Fi is set up (Settings → Headset).`)}
         <div className="field" style={{ marginTop: 0 }}>
           <label htmlFor="wsurl" className="fine">WebSocket address</label>
           <input id="wsurl" type="url" value={wsUrl} onChange={(e) => set({ wsUrl: e.target.value })} spellCheck={false} />
@@ -77,8 +77,9 @@ export default function ConnectSheet({ onClose }: { onClose: () => void }) {
           </div>
         )}
         <p className="fine" style={{ marginTop: 'var(--s-4)' }}>
-          The simulator runs on your computer: <code>npm run sim -- --ws</code>. A phone on the same network can reach it at
-          ws://&lt;computer-ip&gt;:8787 only when this app itself is opened over http (not https).
+          Bluetooth works from the installed app or any https page. A Wi-Fi address that starts with ws:// can only be reached from a page opened over
+          http (for example the laptop-served copy, <code>npm run serve:lan</code>), not from an https page. The simulator runs on your computer:
+          <code>npm run sim -- --ws</code>.
         </p>
       </div>
     </div>

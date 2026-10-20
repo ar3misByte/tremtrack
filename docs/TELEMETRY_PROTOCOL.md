@@ -1,12 +1,12 @@
 # Telemetry protocol
 
-Status: **v1 local line protocol: specified and implemented. v1 cloud MQTT protocol (section 3): specified and implemented in the simulator and the backend (milestone 6); firmware in milestone 7.**
+Status: **v1 local line protocol: specified and implemented. v1 cloud MQTT protocol (section 3): specified and implemented in the simulator, the backend (milestone 6) and the firmware (milestone 7; compiled, not yet run against real AWS).** The local line gained a compass field in milestone 8.
 
 There are three tiers (see `ARCHITECTURE.md`):
 
 | Tier | Rate | Path | Defined in |
 |---|---|---|---|
-| Local stream | 50 Hz | ESP32 → app over USB serial, LAN WebSocket, or BLE | Section 1 (this file) |
+| Local stream | 50 Hz | ESP32 → app over USB serial, Bluetooth LE or LAN WebSocket | Section 1 (this file) |
 | Cloud telemetry | 0.2–1 Hz | ESP32 → AWS IoT Core (MQTT/TLS) | Section 3 |
 | Cloud events | on change | ESP32 → AWS IoT Core | Section 3 |
 
@@ -14,17 +14,17 @@ Raw 50 Hz data is **never** sent to the cloud.
 
 ## 1. Local line protocol (v1)
 
-Text lines terminated by `\n` (a trailing `\r` is ignored). USB serial at 115200 baud, 50 lines/s. The WebSocket and BLE transports (milestone 7) carry the same lines; one WebSocket message may contain several lines.
+Text lines terminated by `\n` (a trailing `\r` is ignored). USB serial at 115200 baud, 50 lines/s. The Bluetooth and WebSocket transports carry the same lines (see "Transports" below); one WebSocket message or Bluetooth notification may contain several lines, and a line may be split across notifications: receivers reassemble at `\n`.
 
 ### Data line
 
 ```
-$,pitch,roll,yaw,fPitch,fRoll,fYaw,tremor,dir,ampP,ampR,ampY,freq,q,walking,stepHz,cycles,bpm,spo2,ppgState,pulse,axes,aMax,aMin
+$,pitch,roll,yaw,fPitch,fRoll,fYaw,tremor,dir,ampP,ampR,ampY,freq,q,walking,stepHz,cycles,bpm,spo2,ppgState,pulse,axes,aMax,aMin,magq
 ```
 
 | # | Field | Unit / values | Since |
 |---|---|---|---|
-| 1–3 | pitch, roll, yaw | degrees. Pitch and roll from a complementary filter; yaw integrated from the gyro (drifts) | 13-value shape |
+| 1–3 | pitch, roll, yaw | degrees. Pitch and roll from a complementary filter; yaw integrated from the gyro, with a slow correction from the compass when one is fitted and calibrated (`ORIENTATION.md`) | 13-value shape |
 | 4–6 | fPitch, fRoll, fYaw | band-passed gyro (2.5–10 Hz), °/s | 13-value shape |
 | 7 | tremor | 0 / 1 | 13-value shape |
 | 8 | dir | 0 = pitch ("yes-yes"), 1 = roll (tilt), 2 = yaw ("no-no"): the alerting axis, else the strongest | 13-value shape |
@@ -41,13 +41,14 @@ $,pitch,roll,yaw,fPitch,fRoll,fYaw,tremor,dir,ampP,ampR,ampY,freq,q,walking,step
 | 21 | axes | bit mask of axes shaking now: 1 pitch, 2 roll, 4 yaw (e.g. 5 = yes-yes + no-no). 0 without tremor. Always includes `dir` while `tremor` = 1 | 23-value shape (milestone 3) |
 | 22 | aMax | largest \|a\| (g) over the 100 Hz samples since the previous line (±8 g range) | 23-value shape |
 | 23 | aMin | smallest \|a\| (g) over the same samples | 23-value shape |
+| 24 | magq | compass state: 0 not fitted, 1 fitted but not calibrated, 2 calibrated but ignored right now (disturbed or tilted), 3 correcting the yaw, 4 calibrating | 24-value shape (milestone 8) |
 
-**Compatibility rule:** new fields are only ever **appended**. Parsers must accept 13, 16, 20 and 23 values, and keep any further values as "extra". Without `axes`, the app derives the mask from `tremor` and `dir`; without `aMax`/`aMin`, fall detection is off. Older parsers, like `legacy/tremor_circle.html`, ignore the extra values. Implemented and tested in `app/src/logic/csv.ts`.
+**Compatibility rule:** new fields are only ever **appended**. Parsers must accept 13, 16, 20, 23 and 24 values, and keep any further values as "extra". A 24th value outside 0–4 is kept as extra, not read as a compass state. Without `axes`, the app derives the mask from `tremor` and `dir`; without `aMax`/`aMin`, fall detection is off. Older parsers, like `legacy/tremor_circle.html`, ignore the extra values. Implemented and tested in `app/src/logic/csv.ts`.
 
-Example (23 values, "no-no" with "yes-yes" at 5.5 Hz, about 1 g):
+Example (24 values, the last is `magq`; "no-no" with "yes-yes" at 5.5 Hz, about 1 g):
 
 ```
-$,12.3,-4.5,30.1,6.10,-0.50,8.75,1,2,7.2,0.3,9.8,5.5,0.82,0,0.00,7,74,97,3,-12.4,5,1.03,0.97
+$,12.3,-4.5,30.1,6.10,-0.50,8.75,1,2,7.2,0.3,9.8,5.5,0.82,0,0.00,7,74,97,3,-12.4,5,1.03,0.97,3
 ```
 
 ### Status line
@@ -59,6 +60,26 @@ $,12.3,-4.5,30.1,6.10,-0.50,8.75,1,2,7.2,0.3,9.8,5.5,0.82,0,0.00,7,74,97,3,-12.4
 | Bytes | Meaning | Device reply |
 |---|---|---|
 | `1`…`5` | tremor sensitivity (1 strict, 2 default, 5 very sensitive) | `# Sensitivity N` |
+| `!sens N` | the same, as a line | `# Sensitivity N` |
+| `!info` | ask for the device's state | `# INFO fw=… name=… wifi=up\|down\|unset ip=… rssi=… cloud=up\|down\|off time=ok\|no tz=… ble=… ws=… mag=0-4` |
+| `!wifi SSID<TAB>PASSWORD` | store Wi-Fi credentials (flash) and connect. Over Bluetooth / WebSocket only in the first 10 minutes after power-up, or while none are stored; over USB always | `# WIFI connecting to …`, `# WIFI setup closed …` |
+| `!forget` | delete the stored Wi-Fi credentials | `# WIFI credentials deleted` |
+| `!tz MINUTES` | local time zone offset east of UTC (−720…840); used for local days in the cloud | `# TZ n` |
+| `!fall cancelled\|confirmed\|no-response` | the phone's answer to the fall countdown, forwarded to the cloud | none |
+| `!recenter` | yaw = 0 (and re-anchor the compass) | `# Yaw recentred` |
+| `!mag start\|stop\|clear` | compass calibration | `# MAG progress n%`, `# MAG calibrated: …`, `# MAG <reason it failed>` |
+| `!reboot` | restart | `# REBOOT` |
+
+Commands are lines ending in `\n`; the single digits need no terminator. Over Bluetooth a write carries at most 20 bytes without a negotiated MTU, so the device collects bytes until `\n`. Unknown commands are ignored.
+
+### Transports
+
+| | Address | Notes |
+|---|---|---|
+| USB serial | 115200 baud | always on; commands trusted |
+| Bluetooth LE | service `6e400001-b5a3-f393-e0a9-e50e24dcca9e` (Nordic UART style); device → app notifications on `…0003…`, app → device writes on `…0002…`; name `HeadTremor-XXXX` | always on. Lines are packed into notifications of (MTU − 3) bytes. If the negotiated MTU is under 100 bytes the device sends every 5th line (about 10 lines/s) and merges `aMax`/`aMin` of the skipped lines into it, so falls are still seen |
+| WebSocket | `ws://<ip>:81`, text messages | starts when Wi-Fi has an address; `#` status lines are sent too |
+| Cloud | Section 3 | summaries, not this line |
 
 ## 1b. Recording file (.rec)
 
@@ -72,10 +93,9 @@ A raw stream saved by the app (Live → Record the raw stream) or made by `tools
 
 Each line is the offset in ms from `start`, a tab, then the protocol line exactly as received. Implemented in `app/src/logic/recording.ts`.
 
-## 2. Planned local additions
+## 2. Possible later additions
 
-These are not implemented yet. Each will be appended to the data line and listed in the table above when it lands:
-- Milestone 8: magnetometer heading quality flag.
+Nothing is planned. Anything new will be appended to the data line and listed in the table above.
 
 (Posture deviation is computed in the app from pitch and roll against the calibrated neutral pose, so it needs no protocol field.)
 
@@ -174,3 +194,13 @@ The device sends 1 Hz telemetry while `watching` is true and `until` lies in the
 | `tremor_telemetry` | `tremor/v1/+/+/telemetry` | DynamoDB `pk=U#owner`, `sk=T#thing#ts`, `ttl` = now + 14 days |
 | `tremor_status` | `tremor/v1/+/+/status` | DynamoDB `D#thing` under the user, and the `DEVICES` registry row |
 | `tremor_events` | `tremor/v1/+/+/event` | events Lambda: stores `E#…`, sends caregiver emails (fall confirmed or unanswered; episode ≥ 10 min), one per kind per 30 min |
+
+### What the firmware does (`firmware/tremor_monitor/reporter.h`)
+
+The firmware computes the summaries itself, so a headset on Wi-Fi works with no phone. `npm run hostsim:cloud` runs the real C++ on 13 scenarios and compares every telemetry message and event with the TypeScript reference (`app/src/logic/cloudSummary.ts`); they are identical. Deliberate differences:
+
+- An episode on several axes reports `pattern: "mixed"`: working out diagonal / circular / independent needs the band-passed signals and stays in the app.
+- `pf` and `pt` (posture) are `null`: the neutral pose is a setting of the app.
+- A fall is sent as `pending` when detected. The outcome comes from the phone (`!fall …`), from the BOOT button ("I'm OK"), or, after 40 s with no answer, the headset sends `no-response` itself (that is the event that triggers the caregiver email).
+- Events wait in a queue of 16 while the connection is down and are sent when it returns (oldest dropped when full); telemetry is not queued.
+- The retained `status` is refreshed every 15 minutes; the broker publishes the offline version as the last will.

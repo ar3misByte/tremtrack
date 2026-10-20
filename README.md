@@ -14,9 +14,14 @@ A prototype that tracks head tremor from a head-worn ESP32 + MPU6050, with heart
 | 4. Medication, tags, correlations, type hints | **done** |
 | 5. Doctor report PDF | **done** |
 | 6. AWS stack, provisioning, simulator to cloud, `docs/AWS_SETUP.md` | **done** (tested against local mocks; first real deployment pending, see below) |
-| 7. Firmware Wi-Fi / BLE / MQTT, live cloud view, sync | next |
-| 8. Magnetometer yaw fusion and calibration UI | |
-| 9. Polish, accessibility, final docs, stage demo script | |
+| 7. Firmware Bluetooth / Wi-Fi / MQTT, installable phone app, cloud sign-in, live cloud view, history, sync | **done** (compiles and is tested in simulators; **not yet run on a real board or a real AWS account**) |
+| 8. Compass (QMC5883P) yaw correction and calibration screen | **done** (same caveat) |
+| 9. Polish, accessibility, final docs, stage demo script | next |
+
+## On your phone (the goal)
+
+**`docs/PHONE_SETUP.md`** takes you from the Arduino IDE to the app installed on an Android phone, reading the headset over Bluetooth:
+flash `firmware/tremor_monitor` (libraries: MAX3010x, NimBLE-Arduino, WebSockets) → publish the app (the `Publish app (GitHub Pages)` workflow, or upload `app/dist` anywhere with https) → open it in Chrome → *Install app* → connection button → **Bluetooth** → `HeadTremor-XXXX`.
 
 ## Quick start (about 10 minutes, no hardware needed)
 
@@ -29,14 +34,15 @@ npm run dev                  # app on http://localhost:5173
 
 1. Open http://localhost:5173, tap the connection pill (top right) and choose **Demo mode**. The scripted 2-minute showcase plays: still, a "no-no" tremor, walking, a "yes-yes" tremor, finger off the pulse sensor. Or choose **Replay a recording → Showcase**, which plays real firmware output recorded in the host simulator.
 2. Open **Trends**. Every connection is saved on the device as a session, and tremor alerts become scored episodes. For a fuller picture, use **Settings → Load 4 weeks of sample history** (clearly marked as sample data, removable).
-3. To stream like a real device over WebSocket, run in a second terminal:
+3. Try the optional **cloud** screens with no AWS account: `npm run cloudmock` in a second terminal, paste the code it prints on the **Cloud** screen (cloud icon at the top), sign in, and start a simulated headset with `npm run sim -- --mqtt tools/devsim/out/mock-device.json`.
+4. To stream like a real device over WebSocket, run in a second terminal:
    ```bash
    npm run sim -- --ws                                     # synthetic showcase on ws://localhost:8787
    npm run hostsim                                         # builds the real sketch for the host (first time)
    npm run sim -- --ws --hostsim tremor_no_4.5hz_6dps      # the real firmware's output
    ```
    In the app choose **Wi-Fi or simulator**.
-4. With the board on USB (desktop Chrome or Edge), flash `firmware/tremor_monitor` (see `firmware/README.md`), close the Serial Monitor, and choose **USB cable**.
+5. With the board on USB (desktop Chrome or Edge), flash `firmware/tremor_monitor` (see `firmware/README.md`), close the Serial Monitor, and choose **USB cable**.
 
 ## Cloud (optional)
 
@@ -64,6 +70,10 @@ npm run e2e:local -w app                  # real firmware -> devsim -> app in a 
 npm run e2e:history -w app                # replay -> recorder -> IndexedDB -> Trends (needs npm run dev)
 npm run e2e:report -w app                 # sample history -> Report -> downloaded PDF checked (needs npm run dev)
 npm run e2e:log -w app                    # medication due now -> reminder -> Taken; tags; Insights results (needs npm run dev)
+npm run e2e:device -w app                 # fake Bluetooth headset streaming real firmware output; Wi-Fi setup; compass calibration (needs npm run dev)
+npm run e2e:cloud -w app                  # setup code, sign-in, live view through the cloud, history, sync, delete, against cloudmock (needs npm run dev)
+npm run hostsim:cloud                     # the firmware's C++ cloud reporter vs the TypeScript reference
+node tools/hostsim/compass-check.mjs      # compass calibration, drift, disturbance, mirrored mounting
 npm run e2e:fall -w app                   # demo fall -> alert -> I'm OK / no response -> Trends (needs npm run dev)
 node tools/hostsim/make-fixtures.mjs      # regenerate firmware-output test fixtures after a firmware change
 npm run screenshots -w app                # docs/screenshots at phone and desktop width
@@ -75,6 +85,6 @@ npm run screenshots -w app                # docs/screenshots at phone and deskto
 firmware/   ESP32 sketch (Arduino IDE)          app/     React + Vite + three.js PWA
 tools/      hostsim (firmware on the host), devsim (stream simulator, MQTT), aws (provisioning, kill switch, cloud e2e)
 infra/      AWS CDK stack and Lambdas (TypeScript)
-docs/       ARCHITECTURE, TELEMETRY_PROTOCOL, SEVERITY, FALLS_POSTURE_VITALS, INSIGHTS_AND_MEDICATION, REPORT, DATA_MODEL, DETECTOR_BASELINE, HEAD_MODEL, PRIVACY, COSTS, AWS_SETUP
+docs/       PHONE_SETUP, ORIENTATION, ARCHITECTURE, TELEMETRY_PROTOCOL, SEVERITY, FALLS_POSTURE_VITALS, INSIGHTS_AND_MEDICATION, REPORT, DATA_MODEL, DETECTOR_BASELINE, HEAD_MODEL, PRIVACY, COSTS, AWS_SETUP
 legacy/     the original sketch and page (read-only reference)
 ```

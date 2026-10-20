@@ -13,6 +13,14 @@ import type { Recording } from '../logic/recording';
 export type FrameHook = (f: Frame, t: number) => void;
 export type ConnHook = (kind: SourceKind | null, state: ConnState) => void;
 
+/** What the firmware reports about itself ('# INFO key=value ...' line, requested with the !info command). */
+export interface DeviceInfo { fw: string; name: string; wifi: string; ip: string; rssi: number; cloud: string; time: string; tz: number; at: number }
+export function parseInfo(text: string, now = Date.now()): DeviceInfo | null {
+  if (!text.startsWith('INFO ')) return null;
+  const kv = Object.fromEntries(text.slice(5).split(/\s+/).map((p) => p.split('=') as [string, string]).filter((p) => p.length === 2));
+  return { fw: kv.fw ?? '', name: kv.name ?? '', wifi: kv.wifi ?? '', ip: kv.ip ?? '', rssi: Number(kv.rssi ?? 0), cloud: kv.cloud ?? '', time: kv.time ?? '', tz: Number(kv.tz ?? 0), at: now };
+}
+
 export const RING = 250;                       // 5 s at 50 Hz
 const STALE_MS = 1500;
 
@@ -33,6 +41,8 @@ export interface LiveSnapshot {
   recordingRaw: boolean;
   rawLines: number;
   replayLabel: string;
+  statusLog: string[];          // recent '#' lines from the firmware, newest last
+  info: DeviceInfo | null;      // from the last '# INFO' line
 }
 
 class Live {
@@ -63,6 +73,8 @@ class Live {
   private connHooks = new Set<ConnHook>();
   private raw: Recording | null = null;
   private replayLabel = '';
+  private statusLog: string[] = [];
+  private info: DeviceInfo | null = null;
   private listeners = new Set<() => void>();
   private snap: LiveSnapshot = this.makeSnap();
 
@@ -75,7 +87,12 @@ class Live {
     if (this.raw && this.raw.entries.length < 200_000) this.raw.entries.push([Date.now() - this.raw.start, line]);
     const p = parseLine(line);
     if (!p) return;
-    if (p.kind === 'status') { this.lastStatus = p.text; this.lastRaw = line; return; }
+    if (p.kind === 'status') {
+      this.lastStatus = p.text; this.lastRaw = line;
+      const info = parseInfo(p.text);
+      if (info) this.info = info; else this.statusLog = [...this.statusLog.slice(-29), p.text];
+      return;
+    }
     if (p.kind === 'invalid') { this.invalid++; return; }
     const f = p.frame;
     this.frame = f;
@@ -111,15 +128,15 @@ class Live {
   }
 
   // ----- connections -----
-  async connect(kind: SourceKind, replay?: { rec: Recording; label: string }) {
+  async connect(kind: SourceKind, replay?: { rec: Recording; label: string }, custom?: DeviceSource) {
     await this.disconnect();
     const s = useSettings.getState();
-    const src: DeviceSource =
-      kind === 'serial' ? new SerialSource()
+    const src: DeviceSource = custom ??
+      (kind === 'serial' ? new SerialSource()
       : kind === 'websocket' ? new WebSocketSource(s.wsUrl)
       : kind === 'ble' ? new BleSource()
       : kind === 'replay' ? new ReplaySource(replay!.rec, replay!.label)
-      : new DemoSource(() => this.demo, (l) => { this.demoLabel = l; }, (a) => { void import('../data/demoActions').then((m) => m.runDemoAction(a)); });
+      : new DemoSource(() => this.demo, (l) => { this.demoLabel = l; }, (a) => { void import('../data/demoActions').then((m) => m.runDemoAction(a)); }));
     this.source = src;
     this.needZero = true;
     this.demoLabel = '';
@@ -129,7 +146,11 @@ class Live {
         line: this.handleLine,
         state: (st, msg) => { if (this.source === src) { this.conn = st; if (msg !== undefined) this.message = msg; this.connHooks.forEach((h) => h(src.kind, st)); this.emit(); } },
       });
-      if (src.send && kind !== 'demo') void this.sendSensitivity(s.sensitivity, true);
+      if (src.send && (kind === 'serial' || kind === 'ble' || kind === 'websocket')) {
+        void this.sendSensitivity(s.sensitivity, true);
+        // tell the headset the local time zone (the cloud uses it for local days) and ask what it is
+        void this.sendCommand(`!tz ${-new Date().getTimezoneOffset()}`).then(() => this.sendCommand('!info'));
+      }
     } catch (e) {
       this.source = null;
       const err = e as Error;
@@ -146,14 +167,26 @@ class Live {
     this.conn = 'idle';
     this.message = '';
     this.lastRx = 0;
+    this.info = null;
+    this.statusLog = [];
     this.connHooks.forEach((h) => h(src?.kind ?? null, 'idle'));
     this.emit();
   }
 
+  /** A command line for the firmware ('!info', '!wifi ssid<TAB>password', …). */
+  async sendCommand(cmd: string): Promise<boolean> {
+    if (!this.source?.send || this.conn !== 'open') return false;
+    try { await this.source.send(cmd + '\n'); return true; }
+    catch (e) { this.message = 'Could not send: ' + (e as Error).message; this.emit(); return false; }
+  }
+
+  /** Clears the stored device info (e.g. before asking again). */
+  async refreshInfo() { this.info = null; return this.sendCommand('!info'); }
+
   async sendSensitivity(level: number, quiet = false) {
     if (!this.source?.send) return false;
     try {
-      await this.source.send(String(level));
+      await this.source.send(String(level) + '\n');
       if (!quiet) this.message = `Sensitivity ${level} sent to the device.`;
       this.emit();
       return true;
@@ -183,13 +216,14 @@ class Live {
   }
 
   private makeSnap(): LiveSnapshot {
-    const fresh = this.lastRx > 0 && performance.now() - this.lastRx < STALE_MS;
+    const fresh = this.lastRx > 0 && performance.now() - this.lastRx < (this.source?.staleMs ?? STALE_MS);
     return {
       conn: this.conn, source: this.source?.kind ?? null, message: this.message, fresh, rate: this.rate,
       frame: this.frame, tremorActive: fresh && !!this.frame?.tremor, lastStatus: this.lastStatus,
       lastRaw: this.lastRaw, invalidCount: this.invalid, demoLabel: this.demoLabel,
       canSend: !!this.source?.send && this.conn === 'open',
       recordingRaw: !!this.raw, rawLines: this.raw?.entries.length ?? 0, replayLabel: this.replayLabel,
+      statusLog: this.statusLog, info: this.info,
       combo: fresh && this.frame && this.frame.tremor && (this.frame.axes & (this.frame.axes - 1)) !== 0 ? this.combo() : null,
     };
   }

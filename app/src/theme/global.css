@@ -250,3 +250,7 @@ input[type='number'] { min-height: 40px; padding: 0 var(--s-2); border-radius: v
 .hint-text { margin-top: var(--s-2); font-size: var(--fs-md); }
 .result-list { margin: var(--s-3) 0 0; padding-left: 1.1rem; display: grid; gap: var(--s-3); font-size: var(--fs-sm); }
 .chart-wrap .forest-label { font-size: 13px; fill: var(--ink); font-weight: 560; }
+
+/* progress bar (compass calibration) */
+.bar { height: 8px; border-radius: 4px; background: var(--surface-sunk); overflow: hidden; }
+.bar > i { display: block; height: 100%; background: var(--ok); border-radius: 4px; transition: width 0.3s; }

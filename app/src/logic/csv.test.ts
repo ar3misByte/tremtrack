@@ -55,6 +55,16 @@ describe('parseLine', () => {
     expect(frame(OLD13).axes).toBe(0);
   });
 
+  it('reads the compass state from the 24th value', () => {
+    const f = frame(FULL + ',5,2.31,0.95,3');
+    expect(f.magQ).toBe(3);
+    expect(f.extra).toEqual([]);
+    expect(frame(FULL + ',5,2.31,0.95').magQ).toBeNull();            // 23-value firmware: no compass field
+    expect(frame(FULL + ',5,2.31,0.95,3,77').extra).toEqual([77]);   // later fields still land in extra
+    expect(frame(FULL + ',5,2.31,0.95,9').magQ).toBeNull();          // not a compass state: kept raw
+    expect(frame(FULL + ',5,2.31,0.95,9').extra).toEqual([9]);
+  });
+
   it('keeps values appended after the known fields in extra', () => {
     expect(frame(FULL + ',5,2.31,0.95,42').extra).toEqual([42]);
     expect(frame(FULL + ',1.02,0,42').extra).toEqual([1.02, 0, 42]);   // not a valid mask: kept raw
