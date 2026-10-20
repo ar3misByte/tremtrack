@@ -1,6 +1,6 @@
 // Device transports. Each one delivers protocol lines (see logic/csv.ts) to a sink.
 import { LineSplitter } from '../logic/csv';
-import { DemoGenerator, scriptAt, type DemoControls } from '../logic/demoGen';
+import { DemoGenerator, scriptAt, type DemoAction, type DemoControls } from '../logic/demoGen';
 import type { Recording } from '../logic/recording';
 
 export type SourceKind = 'serial' | 'websocket' | 'ble' | 'demo' | 'replay';
@@ -126,7 +126,8 @@ export class DemoSource implements DeviceSource {
   private timer: ReturnType<typeof setInterval> | null = null;
   private gen = new DemoGenerator();
   private t0 = 0;
-  constructor(private readonly getControls: () => { scripted: boolean; manual: DemoControls }, private readonly onLabel?: (l: string) => void) {}
+  private lastStep = -1;
+  constructor(private readonly getControls: () => { scripted: boolean; manual: DemoControls }, private readonly onLabel?: (l: string) => void, private readonly onAction?: (a: DemoAction) => void) {}
 
   async start(cb: SourceCallbacks) {
     this.t0 = performance.now();
@@ -135,7 +136,12 @@ export class DemoSource implements DeviceSource {
       const t = (performance.now() - this.t0) / 1000;
       const c = this.getControls();
       let controls = c.manual;
-      if (c.scripted) { const s = scriptAt(t); controls = { ...s.controls, pointer: c.manual.pointer }; this.onLabel?.(s.label); }
+      if (c.scripted) {
+        const s = scriptAt(t);
+        controls = { ...s.controls, pointer: c.manual.pointer };
+        this.onLabel?.(s.label);
+        if (s.step !== this.lastStep) { this.lastStep = s.step; if (s.action) this.onAction?.(s.action); }   // each scripted action once per loop
+      }
       cb.line(this.gen.next(t, controls));
     }, 20);
   }

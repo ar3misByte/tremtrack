@@ -71,7 +71,16 @@ async function session(name, viewport, scale) {
   await shotAt('08b-trends-falls', '[aria-label="Impact events"]');
   const combined = page.locator('.ep-row', { hasText: 'Nod + Turn' }).first();
   if (await combined.count()) { await combined.click(); await page.waitForTimeout(300); await page.screenshot({ path: file('09-episode-sheet-combined') }); await page.keyboard.press('Escape'); }
-  for (const r of ['live', 'trends', 'settings', 'about']) {
+  await page.goto(base + '/#/log');
+  await page.waitForTimeout(1200);
+  await shot('11-log');
+  await shot('11b-log-full', true);
+  await page.goto(base + '/#/insights');
+  await page.waitForTimeout(2000);
+  await shot('12-insights');
+  await shot('12b-insights-full', true);
+  await shotAt('12c-insights-tags', '[aria-label="Tags and tremor"]');
+  for (const r of ['live', 'trends', 'log', 'insights', 'settings', 'about']) {
     await page.goto(base + '/#/' + r);
     await page.waitForTimeout(400);
     const over = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);

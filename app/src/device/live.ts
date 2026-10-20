@@ -119,7 +119,7 @@ class Live {
       : kind === 'websocket' ? new WebSocketSource(s.wsUrl)
       : kind === 'ble' ? new BleSource()
       : kind === 'replay' ? new ReplaySource(replay!.rec, replay!.label)
-      : new DemoSource(() => this.demo, (l) => { this.demoLabel = l; });
+      : new DemoSource(() => this.demo, (l) => { this.demoLabel = l; }, (a) => { void import('../data/demoActions').then((m) => m.runDemoAction(a)); });
     this.source = src;
     this.needZero = true;
     this.demoLabel = '';

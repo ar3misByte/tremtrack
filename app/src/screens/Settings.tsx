@@ -57,7 +57,7 @@ export default function Settings() {
           <button className="btn sm" onClick={() => exportCsv('days')}>Daily summary (CSV)</button>
         </div>
         <div className="btn-row" style={{ marginTop: 'var(--s-3)' }}>
-          <button className="btn sm" onClick={async () => { const h = generateSampleHistory(28, Date.now(), Math.floor(Math.random() * 1000)); await importRecords(h.sessions, h.episodes, h.vitals, h.events); setMsg(`Loaded ${h.sessions.length} sample sessions and ${h.episodes.length} episodes, marked as sample data.`); }}>Load 4 weeks of sample history</button>
+          <button className="btn sm" onClick={async () => { const h = generateSampleHistory(28, Date.now(), Math.floor(Math.random() * 1000)); await importRecords(h.sessions, h.episodes, h.vitals, h.events, { tags: h.tags, meds: h.meds, doses: h.doses }); setMsg(`Loaded ${h.sessions.length} sample sessions and ${h.episodes.length} episodes, marked as sample data.`); }}>Load 4 weeks of sample history</button>
           <button className="btn sm" disabled={!c?.demoSessions} onClick={async () => { await deleteDemoData(); setMsg('Demo, replay and sample data deleted. Your real data is untouched.'); }}>Delete demo and sample data</button>
         </div>
         <div style={{ marginTop: 'var(--s-4)', paddingTop: 'var(--s-4)', borderTop: '1px solid var(--line)' }}>

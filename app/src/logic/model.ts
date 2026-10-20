@@ -89,3 +89,38 @@ export interface FallEvent {
   resolvedAt: number | null;
   caregiverAlert: 'not-configured' | 'sent' | 'failed' | 'not-needed';
 }
+
+// ---------- milestone 4: tags, medications, doses ----------
+export type TagKind = 'coffee' | 'poor-sleep' | 'stress' | 'exercise' | 'alcohol' | 'meal' | 'custom';
+
+/** A quick tag ("coffee", "stress", ...) at a moment in time. */
+export interface Tag {
+  id: string;
+  t: number;
+  kind: TagKind;
+  label: string | null;          // only for custom tags
+  demo: boolean;
+}
+
+/** A medication schedule. The name and dose are free text typed by the user; the app gives no advice. */
+export interface Medication {
+  id: string;
+  name: string;
+  dose: string;
+  times: string[];               // local "HH:MM"
+  days: number[];                // 0 = Sunday ... 6; empty = every day
+  active: boolean;
+  createdAt: number;
+  demo: boolean;
+}
+
+/** What happened to one scheduled dose (or an extra, unscheduled one). */
+export interface DoseLog {
+  id: string;                    // `${medId}@${scheduledFor}` for scheduled doses, so a dose is logged once
+  medId: string;
+  scheduledFor: number | null;   // ms, null = extra dose
+  takenAt: number | null;        // null when skipped
+  status: 'taken' | 'skipped';
+  loggedAt: number;
+  demo: boolean;
+}

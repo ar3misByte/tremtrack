@@ -56,7 +56,7 @@ export default function Trends() {
 
   const loadSample = async () => {
     const h = generateSampleHistory(28, Date.now(), Math.floor(Math.random() * 1000));
-    await importRecords(h.sessions, h.episodes, h.vitals, h.events);
+    await importRecords(h.sessions, h.episodes, h.vitals, h.events, { tags: h.tags, meds: h.meds, doses: h.doses });
     if (!showDemo) set({ showDemoData: true });
   };
 

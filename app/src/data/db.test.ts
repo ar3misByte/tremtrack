@@ -65,7 +65,7 @@ describe('local database', () => {
     expect(x.episodes).toHaveLength(1);
     expect(episodesCsv(x.episodes).split('\r\n')[0]).toContain('start_iso');
     await deleteAllLocalData();
-    expect(await counts()).toEqual({ sessions: 0, episodes: 0, samples: 0, vitals: 0, events: 0, demoSessions: 0 });
+    expect(await counts()).toEqual({ sessions: 0, episodes: 0, samples: 0, vitals: 0, events: 0, tags: 0, meds: 0, doses: 0, demoSessions: 0 });
   });
 });
 

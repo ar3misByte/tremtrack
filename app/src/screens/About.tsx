@@ -18,6 +18,8 @@ export default function About() {
           <li>Fall detection is a heuristic: it misses slow slumps and soft landings, and dropping the headset looks like a fall. Caregiver alerts are not set up yet (milestone 6).</li>
           <li>Posture is measured against your own calibrated neutral position; recalibrate if the headset shifts.</li>
           <li>The SpO₂ value, including resting values, is an uncalibrated estimate.</li>
+          <li>Insights show associations in your own data, never causes; the pattern wording has not been clinically reviewed.</li>
+          <li>Medication reminders only work while the app is open; the app gives no medical advice.</li>
         </ul>
       </section>
       <section className="card">

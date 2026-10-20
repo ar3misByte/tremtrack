@@ -137,3 +137,60 @@ export const RESTING = {
   /** Flag when at least this many of the last 7 days are low / high. */
   flagDays: 2,
 };
+
+export type TagKind = 'coffee' | 'poor-sleep' | 'stress' | 'exercise' | 'alcohol' | 'meal' | 'custom';
+
+export const TAGS = {
+  // Window after a tag that is compared with the rest of your monitored time (minutes after the tag).
+  // Chosen as plausible "may matter" windows for self-tracking, not physiological constants.
+  windows: {
+    coffee: [30, 180], 'poor-sleep': [0, 720], stress: [0, 120], exercise: [0, 120],
+    alcohol: [30, 240], meal: [0, 120], custom: [0, 120],
+  } as Record<TagKind, [number, number]>,
+  /** Baseline = the same clock-time window on other days, up to this many days away, without a tag of this kind. */
+  baselineDays: 14,
+  /** ... and at least this far (min) from any tag of this kind and its window. */
+  baselineGapMin: 60,
+};
+
+export const CORRELATION = {
+  // Statistics on the Insights screen (logic/correlate.ts). Shown with sample counts and intervals.
+  /** A window counts only if at least this share of it was monitored. */
+  minCoverage: 0.5,
+  /** Below these counts the screen says "not enough data yet" instead of a result. */
+  minAfterWindows: 5,
+  minBaselineWindows: 10,
+  minPairedDoses: 5,
+  minEpisodesForHr: 8,
+  /** Bootstrap resamples for the intervals. */
+  bootstrap: 2000,
+  /** Family-wise error rate; the interval level is Bonferroni-corrected for the number of comparisons shown. */
+  alpha: 0.05,
+  /** Heart rate before an episode: this window before the alert, compared with seconds this far from any episode. */
+  hrBeforeS: 300,
+  hrBaselineGapS: 600,
+};
+
+export const MEDS = {
+  /** A dose logged within this many minutes of its scheduled time is "on time"; later is "late". */
+  onTimeMin: 30,
+  /** A scheduled dose with nothing logged this long after its time counts as missed. */
+  missedAfterMin: 120,
+  /** Reminder snooze length (min). */
+  snoozeMin: 10,
+  /** Effect window: tremor in [beforeMin, 0] before a dose vs [afterStartMin, afterEndMin] after it. */
+  beforeMin: 120,
+  afterStartMin: 30,
+  afterEndMin: 180,
+};
+
+export const HINTS = {
+  /** Episodes needed before any pattern is described, and for each confidence level. */
+  minEpisodes: 5,
+  moderateEpisodes: 15,
+  highEpisodes: 40,
+  /** An axis "dominates" when it is the main axis in at least this share of episodes. */
+  dominantShare: 0.6,
+  /** A pattern is "often" seen when present in at least this share of episodes. */
+  oftenShare: 0.3,
+};

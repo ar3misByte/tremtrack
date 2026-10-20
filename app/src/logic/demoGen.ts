@@ -132,16 +132,19 @@ export class DemoGenerator {
 }
 
 // ---------- scripted showcase (loops) ----------
-export interface ScriptStep { at: number; label: string; set: Partial<DemoControls> }
+export type DemoAction = 'tag-coffee' | 'dose';
+export interface ScriptStep { at: number; label: string; set: Partial<DemoControls>; action?: DemoAction }
 
 export const SHOWCASE: { length: number; steps: ScriptStep[] } = {
   length: 160,
   steps: [
     { at: 0, label: 'Sitting still', set: { tremorAxes: [], walking: false, finger: true, droopDeg: 0, still: false, fall: false } },
+    { at: 4, label: 'Coffee tagged', set: {}, action: 'tag-coffee' },
     { at: 10, label: "'No-no' tremor, about 5 Hz", set: { tremorAxes: [2], tremorHz: 5.2, tremorDps: 14 } },
     { at: 25, label: 'Tremor stops', set: { tremorAxes: [] } },
     { at: 32, label: 'Walking (ignored by the detector)', set: { walking: true } },
     { at: 50, label: 'Stops walking', set: { walking: false } },
+    { at: 52, label: 'Dose of the demo medication logged', set: {}, action: 'dose' },
     { at: 55, label: "'Yes-yes' and 'no-no' together (diagonal)", set: { tremorAxes: [2, 0], tremorHz: 4.8, tremorDps: 12, comboPhaseDeg: 0 } },
     { at: 70, label: 'Tremor stops', set: { tremorAxes: [] } },
     { at: 76, label: 'Head held forward and still (posture)', set: { droopDeg: 22, still: true } },
@@ -153,14 +156,18 @@ export const SHOWCASE: { length: number; steps: ScriptStep[] } = {
   ],
 };
 
-export function scriptAt(t: number, script = SHOWCASE): { controls: DemoControls; label: string } {
+export function scriptAt(t: number, script = SHOWCASE): { controls: DemoControls; label: string; step: number; action?: DemoAction } {
   const tt = ((t % script.length) + script.length) % script.length;
   let controls = { ...DEFAULT_CONTROLS };
   let label = '';
-  for (const s of script.steps) {
+  let step = -1;
+  let action: DemoAction | undefined;
+  for (const [i, s] of script.steps.entries()) {
     if (s.at > tt) break;
     controls = { ...controls, ...s.set };
     label = s.label;
+    step = i;
+    action = s.action;
   }
-  return { controls, label };
+  return { controls, label, step: step + Math.floor(t / script.length) * script.steps.length, action };
 }

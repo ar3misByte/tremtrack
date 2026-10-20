@@ -4,6 +4,7 @@ import { useRoute } from './router';
 import { useSettings } from './state/settings';
 import ConnectSheet from './components/ConnectSheet';
 import FallAlert from './components/FallAlert';
+import ReminderBanner from './components/ReminderBanner';
 import TabBar from './components/TabBar';
 import { BrandMark, IconGear } from './components/icons';
 import Live from './screens/Live';
@@ -12,6 +13,8 @@ import Placeholder from './screens/Placeholder';
 const Settings = lazy(() => import('./screens/Settings'));
 const About = lazy(() => import('./screens/About'));
 const Trends = lazy(() => import('./screens/Trends'));
+const Log = lazy(() => import('./screens/Log'));
+const Insights = lazy(() => import('./screens/Insights'));
 
 function ConnPill({ onClick }: { onClick: () => void }) {
   const s = useLive();
@@ -58,12 +61,13 @@ export default function App() {
         </div>
       </header>
 
+      <ReminderBanner />
       <main>
         <Suspense fallback={<p className="page fine">Loading…</p>}>
         {route === 'live' && <Live onConnect={open} />}
         {route === 'trends' && <Trends />}
-        {route === 'log' && <Placeholder title="Log" milestone={4} items={['Quick tags: coffee, poor sleep, stress, exercise, alcohol, meal, custom', 'Medication schedule, reminders, taken / skipped / late', 'Adherence percentage']} />}
-        {route === 'insights' && <Placeholder title="Insights" milestone={4} items={['Patterns in your tremor (axis, frequency, regularity), worded as things to mention to a doctor, never a diagnosis', 'Tremor after tags and doses compared with baseline, with sample counts and uncertainty', 'Heart rate around tremor episodes']} />}
+        {route === 'log' && <Log />}
+        {route === 'insights' && <Insights />}
         {route === 'report' && <Placeholder title="Doctor report" milestone={5} items={['Pick a date range, get a PDF', 'Severity trend, episode table, patterns with their evidence', 'Medication and trigger findings with sample counts, vitals trends, impact events', 'A plain-language disclaimer']} />}
         {route === 'settings' && <Settings />}
         {route === 'about' && <About />}
