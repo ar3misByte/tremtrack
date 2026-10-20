@@ -52,7 +52,7 @@ function Rig() {
     rig.led.emissiveIntensity = tremor && !reduced ? 0.6 + 0.6 * (0.5 + 0.5 * Math.sin(t * 9)) : fresh ? 0.7 : 0.1;
 
     rig.rings.forEach((ring, i) => {
-      const on = tremor && f!.dir === i;
+      const on = tremor && ((f!.axes >> i) & 1) === 1;   // every shaking axis gets its ring
       const m = ring.material as THREE.MeshBasicMaterial;
       const goal = on ? 0.85 : 0;
       m.opacity += (goal - m.opacity) * Math.min(1, dt * 8);

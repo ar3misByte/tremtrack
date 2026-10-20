@@ -13,7 +13,7 @@ test('parseArgs defaults to WebSocket on 8787 with the showcase script', () => {
 test('--tremor switches to manual controls', () => {
   const o = parseArgs(['--stdout', '--tremor', '2']);
   assert.equal(o.script, 'manual');
-  assert.equal(o.tremor, 2);
+  assert.deepEqual(o.tremor, [2]);
   assert.equal(o.ws, false);
 });
 

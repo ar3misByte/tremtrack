@@ -1,6 +1,6 @@
 # Architecture
 
-Status after milestone 2: the **local path** is built: firmware (unchanged legacy sketch), USB / WebSocket / demo / replay transports, the live view, and local history (sessions, scored episodes, 1 Hz samples in IndexedDB) with Trends. Everything shown dashed below is planned.
+Status after milestone 3: firmware reports every shaking axis and per-line acceleration extremes with a ±8 g range; the app adds combined-tremor analysis, fall candidates with a cancel countdown, posture and stillness against a calibrated neutral pose, and resting vitals. Status after milestone 2: the **local path** is built: firmware (unchanged legacy sketch), USB / WebSocket / demo / replay transports, the live view, and local history (sessions, scored episodes, 1 Hz samples in IndexedDB) with Trends. Everything shown dashed below is planned.
 
 ```mermaid
 flowchart LR
@@ -54,6 +54,8 @@ flowchart LR
 | Quaternions for the 3D head (`app/src/logic/orientation.ts`) | No gimbal-lock artefacts. Shortest-path slerp with frame-rate-independent smoothing. |
 | Sessions and episodes are derived in the app, not the firmware | The firmware already streams the alert flag and band statistics. Deriving episodes in pure, tested TypeScript keeps the device simple and lets the cloud Lambda (M6) reuse the same rules. |
 | Demo, replay and sample data are stored but flagged `demo` | The stage demo can show history, and real data can always be separated from it. |
+| Fall, posture and resting-vitals rules run in the app for now | They are pure, tested TypeScript run on the firmware's output (host-simulator fixtures). The firmware sends the 100 Hz information they need (`aMax`, `aMin`). A firmware port of the fall rule is planned with networking (milestone 7), so a fall can raise a cloud event without the phone. |
+| The firmware reports WHICH axes shake, the app works out HOW they move together | Keeps the device's alert logic unchanged and regression-identical. Phase relations need only the 50 Hz band-passed signals the firmware already streams. |
 | Procedural head model | No licensing questions, about 0 KB of model download, and exactly the requested look (neutral skin, hair, glasses, headband with the sensor pod). See `HEAD_MODEL.md`. |
 | CDK (TypeScript) for AWS, `ap-south-1` | Planned for milestone 6: one language across the repo; region closest to the user. Service availability will be verified then. |
 
@@ -61,7 +63,8 @@ flowchart LR
 
 ```
 app/src/logic/      pure, unit-tested: csv.ts (protocol), orientation.ts, demoGen.ts, severity.ts,
-                    tracker.ts (sessions/episodes/samples), daily.ts, sampleHistory.ts, recording.ts
+                    tracker.ts (sessions/episodes/samples/vitals/falls), daily.ts, sampleHistory.ts, recording.ts,
+                    multiaxis.ts (combined tremor), fall.ts, posture.ts, vitals.ts; __fixtures__ = firmware output
 app/src/data/       db.ts (IndexedDB), recorder.ts (live stream -> storage), csvExport.ts
 app/src/device/     sources.ts (Web Serial, WebSocket, BLE stub, demo), live.ts (live state)
 app/src/components/ Head3D + headModel (three.js), Circle2D, Traces, ConnectSheet, TabBar
@@ -69,5 +72,5 @@ app/src/screens/    Live, Trends, Settings (built); placeholders for Log / Insig
 app/src/theme/      tokens.css: every colour, font, size, radius in one place
 tools/hostsim/      mock Arduino + synthetic sensors; run.mjs = regression runner
 tools/devsim/       50 Hz stream over WebSocket / stdout (MQTT in M6)
-firmware/           tremor_monitor (currently identical to legacy/tremor_stream.ino)
+firmware/           tremor_monitor (legacy detector + axes mask, |a| extremes, ±8 g)
 ```

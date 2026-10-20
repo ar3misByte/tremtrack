@@ -1,15 +1,17 @@
-import { useCallback, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { live, useLive } from './device/live';
 import { useRoute } from './router';
 import { useSettings } from './state/settings';
 import ConnectSheet from './components/ConnectSheet';
+import FallAlert from './components/FallAlert';
 import TabBar from './components/TabBar';
 import { BrandMark, IconGear } from './components/icons';
 import Live from './screens/Live';
 import Placeholder from './screens/Placeholder';
-import Settings from './screens/Settings';
-import About from './screens/About';
-import Trends from './screens/Trends';
+// screens other than Live load on demand, keeping the first load small
+const Settings = lazy(() => import('./screens/Settings'));
+const About = lazy(() => import('./screens/About'));
+const Trends = lazy(() => import('./screens/Trends'));
 
 function ConnPill({ onClick }: { onClick: () => void }) {
   const s = useLive();
@@ -57,6 +59,7 @@ export default function App() {
       </header>
 
       <main>
+        <Suspense fallback={<p className="page fine">Loading…</p>}>
         {route === 'live' && <Live onConnect={open} />}
         {route === 'trends' && <Trends />}
         {route === 'log' && <Placeholder title="Log" milestone={4} items={['Quick tags: coffee, poor sleep, stress, exercise, alcohol, meal, custom', 'Medication schedule, reminders, taken / skipped / late', 'Adherence percentage']} />}
@@ -64,11 +67,13 @@ export default function App() {
         {route === 'report' && <Placeholder title="Doctor report" milestone={5} items={['Pick a date range, get a PDF', 'Severity trend, episode table, patterns with their evidence', 'Medication and trigger findings with sample counts, vitals trends, impact events', 'A plain-language disclaimer']} />}
         {route === 'settings' && <Settings />}
         {route === 'about' && <About />}
+        </Suspense>
         <p className="disclaimer">Prototype for demonstration. Not a medical device. <a href="#/about">Limits</a></p>
       </main>
 
       <TabBar route={route} />
       {sheet && <ConnectSheet onClose={close} />}
+      <FallAlert />
     </div>
   );
 }

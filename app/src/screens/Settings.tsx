@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useSettings } from '../state/settings';
+import { thresholds, useSettings, type ThresholdOverrides } from '../state/settings';
 import { counts, deleteAllLocalData, deleteDemoData, exportAll, importRecords, listEpisodes, listSessions, onDataChanged } from '../data/db';
 import { daysCsv, download, episodesCsv } from '../data/csvExport';
 import { generateSampleHistory } from '../logic/sampleHistory';
@@ -9,8 +9,21 @@ import { live } from '../device/live';
 
 type Counts = Awaited<ReturnType<typeof counts>>;
 
+function Num({ label, unit, value, min, max, step, onChange }: { label: string; unit: string; value: number; min: number; max: number; step: number; onChange: (v: number) => void }) {
+  const id = 'th-' + label.replace(/W+/g, '-');
+  return (
+    <div className="field-row" style={{ minHeight: 44 }}>
+      <label htmlFor={id} style={{ fontSize: 'var(--fs-sm)' }}>{label}</label>
+      <span><input id={id} type="number" inputMode="decimal" value={value} min={min} max={max} step={step} style={{ width: '5.5rem' }}
+        onChange={(e) => { const v = Number(e.target.value); if (Number.isFinite(v) && v >= min && v <= max) onChange(v); }} /> {unit}</span>
+    </div>
+  );
+}
+
 export default function Settings() {
   const st = useSettings();
+  const th = thresholds();
+  const setO = <K extends keyof ThresholdOverrides>(k: K, p: NonNullable<ThresholdOverrides[K]>) => st.set({ overrides: { ...st.overrides, [k]: { ...st.overrides[k], ...p } } });
   const [c, setC] = useState<Counts | null>(null);
   const [msg, setMsg] = useState('');
   const [confirmAll, setConfirmAll] = useState(false);
@@ -44,7 +57,7 @@ export default function Settings() {
           <button className="btn sm" onClick={() => exportCsv('days')}>Daily summary (CSV)</button>
         </div>
         <div className="btn-row" style={{ marginTop: 'var(--s-3)' }}>
-          <button className="btn sm" onClick={async () => { const h = generateSampleHistory(28, Date.now(), Math.floor(Math.random() * 1000)); await importRecords(h.sessions, h.episodes); setMsg(`Loaded ${h.sessions.length} sample sessions and ${h.episodes.length} episodes, marked as sample data.`); }}>Load 4 weeks of sample history</button>
+          <button className="btn sm" onClick={async () => { const h = generateSampleHistory(28, Date.now(), Math.floor(Math.random() * 1000)); await importRecords(h.sessions, h.episodes, h.vitals, h.events); setMsg(`Loaded ${h.sessions.length} sample sessions and ${h.episodes.length} episodes, marked as sample data.`); }}>Load 4 weeks of sample history</button>
           <button className="btn sm" disabled={!c?.demoSessions} onClick={async () => { await deleteDemoData(); setMsg('Demo, replay and sample data deleted. Your real data is untouched.'); }}>Delete demo and sample data</button>
         </div>
         <div style={{ marginTop: 'var(--s-4)', paddingTop: 'var(--s-4)', borderTop: '1px solid var(--line)' }}>
@@ -70,7 +83,7 @@ export default function Settings() {
       </section>
 
       <section className="card" aria-label="Detection and scoring settings">
-        <div className="card-title"><span>Detection and scoring</span><span className="fine">read-only for now</span></div>
+        <div className="card-title"><span>Detection and scoring</span><span className="fine">fixed in this prototype</span></div>
         <p className="fine">The tremor detector runs on the device. Its sensitivity is set on the Live screen (currently {st.sensitivity}). The app-side values below come from <code>app/src/config/thresholds.ts</code>.</p>
         <dl className="kv" style={{ marginTop: 'var(--s-2)' }}>
           <div><dt>Merge alerts closer than</dt><dd>{EPISODES.mergeGapS} s</dd></div>
@@ -82,11 +95,35 @@ export default function Settings() {
         </dl>
       </section>
 
+      <section className="card" aria-label="Falls, posture and resting vitals">
+        <div className="card-title"><span>Falls, posture and resting vitals</span></div>
+        <label className="check"><input type="checkbox" checked={st.fallDetection} onChange={(e) => st.set({ fallDetection: e.target.checked })} /> Fall and impact detection (with a {th.fall.cancelCountdownS} s cancel countdown)</label>
+        <label className="check"><input type="checkbox" checked={st.postureMonitoring} onChange={(e) => st.set({ postureMonitoring: e.target.checked })} /> Gentle posture reminders</label>
+        <p className="fine" style={{ margin: 'var(--s-2) 0' }}>
+          Neutral position: {st.neutralPose ? `calibrated ${new Date(st.neutralPose.t).toLocaleString()}` : 'not calibrated (Live screen)'}
+          {st.neutralPose && <> · <button className="btn ghost sm" onClick={() => st.set({ neutralPose: null })}>Clear</button></>}
+        </p>
+        <details className="disclosure">
+          <summary>Thresholds (changes apply from the next connection)</summary>
+          <div className="body">
+            <Num label="Impact without free fall" unit="g" value={th.fall.impactOnlyG} min={2} max={8} step={0.5} onChange={(v) => setO('fall', { impactOnlyG: v })} />
+            <Num label="Impact after free fall" unit="g" value={th.fall.impactG} min={1.5} max={6} step={0.5} onChange={(v) => setO('fall', { impactG: v })} />
+            <Num label="Cancel countdown" unit="s" value={th.fall.cancelCountdownS} min={10} max={120} step={5} onChange={(v) => setO('fall', { cancelCountdownS: v })} />
+            <Num label="Head forward limit" unit="°" value={th.posture.droopMaxDeg} min={5} max={40} step={1} onChange={(v) => setO('posture', { droopMaxDeg: v })} />
+            <Num label="Side tilt limit" unit="°" value={th.posture.tiltMaxDeg} min={5} max={40} step={1} onChange={(v) => setO('posture', { tiltMaxDeg: v })} />
+            <Num label="Reminder after" unit="min" value={th.posture.promptAfterS / 60} min={1} max={30} step={1} onChange={(v) => setO('posture', { promptAfterS: v * 60 })} />
+            <Num label="Resting after keeping still for" unit="min" value={th.resting.restMinS / 60} min={1} max={15} step={1} onChange={(v) => setO('resting', { restMinS: v * 60 })} />
+            <Num label="Flag SpO₂ estimate below" unit="%" value={th.resting.lowSpo2Pct} min={85} max={95} step={1} onChange={(v) => setO('resting', { lowSpo2Pct: v })} />
+            <button className="btn sm" onClick={() => st.set({ overrides: {} })}>Reset to defaults</button>
+            <p>Defaults and the full list live in <code>app/src/config/thresholds.ts</code>, with the reasoning for each value.</p>
+          </div>
+        </details>
+      </section>
+
       <section className="card">
         <div className="card-title"><span>Coming later</span></div>
         <ul className="fine" style={{ margin: 0, paddingLeft: '1.1rem', display: 'grid', gap: 4 }}>
-          <li>Pose range and stillness thresholds (milestone 3)</li>
-          <li>Account, cloud sync and cloud deletion (milestones 6–7)</li>
+          <li>Account, cloud sync, caregiver email alerts and cloud deletion (milestones 6–7)</li>
         </ul>
       </section>
       <p className="fine"><a href="#/about">About, licences and limitations</a></p>

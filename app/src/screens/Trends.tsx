@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import DailyChart from '../components/charts/DailyChart';
+import MiniLine from '../components/charts/MiniLine';
 import EpisodeSheet from '../components/EpisodeSheet';
-import { importRecords, listEpisodes, listSessions, onDataChanged } from '../data/db';
+import { importRecords, listEpisodes, listEvents, listSessions, listVitals, onDataChanged } from '../data/db';
 import { useRecorder } from '../data/recorder';
 import { DAY_MS, nextDay, rollingMean, startOfDay, summarizeDays, summarizeWeeks } from '../logic/daily';
-import { AXIS_SHORT, AXIS_VAR, SOURCE_LABEL, fmtDate, fmtDuration, fmtMinutes, fmtPct, fmtScore, fmtTime } from '../logic/labels';
-import type { Episode, Session } from '../logic/model';
+import { AXIS_VAR, SOURCE_LABEL, axesShort, episodeAxes, fmtDate, fmtDuration, fmtMinutes, fmtPct, fmtScore, fmtTime } from '../logic/labels';
+import { summarizeVitals, vitalsFlags, type RestingReading } from '../logic/vitals';
+import { thresholds } from '../state/settings';
+import type { Episode, FallEvent, Session } from '../logic/model';
 import { generateSampleHistory } from '../logic/sampleHistory';
 import { scoreBand } from '../logic/severity';
 import { SEVERITY } from '../config/thresholds';
@@ -14,14 +17,15 @@ import { useSettings } from '../state/settings';
 const RANGES = [7, 30, 90] as const;
 
 function useHistory(rangeDays: number, includeDemo: boolean) {
-  const [data, setData] = useState<{ sessions: Session[]; episodes: Episode[]; from: number; to: number } | null>(null);
+  const [data, setData] = useState<{ sessions: Session[]; episodes: Episode[]; vitals: RestingReading[]; events: FallEvent[]; from: number; to: number } | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const load = useCallback(async () => {
     const to = nextDay(Date.now()) - 1;
     const from = startOfDay(to - (rangeDays - 1) * DAY_MS);
     try {
-      const [sessions, episodes] = await Promise.all([listSessions(from, to, { includeDemo }), listEpisodes(from, to, { includeDemo })]);
-      setData({ sessions, episodes, from, to });
+      const f = { includeDemo };
+      const [sessions, episodes, vitals, events] = await Promise.all([listSessions(from, to, f), listEpisodes(from, to, f), listVitals(from, to, f), listEvents(from, to, f)]);
+      setData({ sessions, episodes, vitals, events, from, to });
       setErr(null);
     } catch (e) { setErr((e as Error).message); }
   }, [rangeDays, includeDemo]);
@@ -45,10 +49,14 @@ export default function Trends() {
   const sessions = useMemo(() => (data ? [...data.sessions].sort((a, b) => b.start - a.start) : []), [data]);
   const hasDemo = !!data && (data.sessions.some((s) => s.demo) || data.episodes.some((e) => e.demo));
   const today = rec.today;
+  const vdays = useMemo(() => (data ? summarizeVitals(data.vitals, data.from, Math.min(data.to, Date.now())) : []), [data]);
+  const flags = useMemo(() => vitalsFlags(vdays, thresholds().resting), [vdays]);
+  const events = useMemo(() => (data ? [...data.events].sort((a, b) => b.t - a.t) : []), [data]);
+  const postureDays = useMemo(() => [...days].reverse().filter((d) => d.monitoredS > 0).slice(0, 7), [days]);
 
   const loadSample = async () => {
     const h = generateSampleHistory(28, Date.now(), Math.floor(Math.random() * 1000));
-    await importRecords(h.sessions, h.episodes);
+    await importRecords(h.sessions, h.episodes, h.vitals, h.events);
     if (!showDemo) set({ showDemoData: true });
   };
 
@@ -104,6 +112,20 @@ export default function Trends() {
               <DailyChart days={days} avg={avg} title={`Daily severity score, last ${range} days`} />
             </section>
 
+            <section className="card" aria-label="Resting heart rate and SpO2">
+              <div className="card-title"><span>Resting heart rate and SpO₂</span><span className="fine">daily median</span></div>
+              {vdays.every((d) => d.bpm === null)
+                ? <p className="muted">No resting readings yet. They are taken after {Math.round(thresholds().resting.restMinS / 60)} minutes of keeping still with a fingertip on the sensor.</p>
+                : <>
+                    <p className="fine" style={{ marginBottom: 'var(--s-2)' }}>Heart rate (bpm)</p>
+                    <MiniLine title="Daily median resting heart rate" unit="bpm" domain={[40, 120]} ticks={[40, 60, 80, 100, 120]} points={vdays.map((d) => ({ t: d.dayStart, v: d.bpm, note: d.n ? `${d.n} reading${d.n === 1 ? '' : 's'}` : undefined }))} color="var(--heart)" />
+                    <p className="fine" style={{ margin: 'var(--s-4) 0 var(--s-2)' }}>SpO₂ estimate (%)</p>
+                    <MiniLine title="Daily median resting SpO2 estimate" unit="%" domain={[85, 100]} ticks={[85, 90, 95, 100]} points={vdays.map((d) => ({ t: d.dayStart, v: d.spo2, note: d.n ? `${d.n} reading${d.n === 1 ? '' : 's'}` : undefined }))} band={{ from: 85, to: thresholds().resting.lowSpo2Pct, label: `Below ${thresholds().resting.lowSpo2Pct} %` }} />
+                  </>}
+              {flags.map((f) => <p key={f.kind} className="notice warn" style={{ marginTop: 'var(--s-3)' }}>{f.text}</p>)}
+              <p className="fine" style={{ marginTop: 'var(--s-3)' }}>Only readings taken while still, with a valid pulse signal, and rated good or fair are used. The SpO₂ value is an uncalibrated estimate from a hobby sensor.</p>
+            </section>
+
             <section className="card" aria-label="Weekly summary">
               <div className="card-title"><span>By week</span></div>
               <div style={{ overflowX: 'auto' }}>
@@ -130,10 +152,10 @@ export default function Trends() {
               <ul className="ep-list">
                 {episodes.slice(0, limit).map((e) => (
                   <li key={e.id}>
-                    <button className="ep-row" onClick={() => setOpen(e)} aria-label={`Episode ${fmtDate(e.start)} ${fmtTime(e.start)}, ${fmtDuration(e.durationS)}, ${AXIS_SHORT[e.axis]}, score ${fmtScore(e.score)}`}>
+                    <button className="ep-row" onClick={() => setOpen(e)} aria-label={`Episode ${fmtDate(e.start)} ${fmtTime(e.start)}, ${fmtDuration(e.durationS)}, ${axesShort(episodeAxes(e))}, score ${fmtScore(e.score)}`}>
                       <span className="ep-when"><b>{fmtTime(e.start)}</b><span>{fmtDate(e.start, { day: 'numeric', month: 'short' })}</span></span>
                       <span className="ep-mid">
-                        <span><i className="sw" style={{ background: `var(${AXIS_VAR[e.axis]})` }} />{AXIS_SHORT[e.axis]} · {e.freqHz.toFixed(1)} Hz</span>
+                        <span>{episodeAxes(e).map((a) => <i key={a} className="sw" style={{ background: `var(${AXIS_VAR[a]})` }} />)}{axesShort(episodeAxes(e))} · {e.freqHz.toFixed(1)} Hz{e.pattern && e.pattern !== 'single' ? ` · ${e.pattern === 'independent' ? 'two rhythms' : e.pattern}` : ''}</span>
                         <span className="fine">{fmtDuration(e.durationS)}{e.demo ? ' · demo' : ''}</span>
                       </span>
                       <span className="score-pill">{fmtScore(e.score)}</span>
@@ -142,6 +164,37 @@ export default function Trends() {
                 ))}
               </ul>
               {episodes.length > limit && <button className="btn sm" onClick={() => setLimit((l) => l + 30)}>Show more</button>}
+            </section>
+
+            <section className="card" aria-label="Posture and stillness">
+              <div className="card-title"><span>Posture and stillness</span><span className="fine">last 7 days with data</span></div>
+              {postureDays.length === 0 ? <p className="muted">No data yet.</p> : (
+                <div style={{ overflowX: 'auto' }}>
+                  <table className="data-table">
+                    <thead><tr><th scope="col">Day</th><th scope="col">Still</th><th scope="col">Restless</th><th scope="col">Outside range</th></tr></thead>
+                    <tbody>{postureDays.map((d) => (
+                      <tr key={d.day}><th scope="row">{fmtDate(d.dayStart, { weekday: 'short', day: 'numeric' })}</th><td>{fmtMinutes(d.stillS)}</td><td>{fmtMinutes(d.restlessS)}</td><td>{d.poseMonitoredS > 0 ? fmtPct(d.outsidePoseS / d.poseMonitoredS) : 'not calibrated'}</td></tr>
+                    ))}</tbody>
+                  </table>
+                </div>
+              )}
+              <p className="fine" style={{ marginTop: 'var(--s-2)' }}>"Outside range" is measured against your calibrated neutral position (Live screen).</p>
+            </section>
+
+            <section className="card" aria-label="Impact events">
+              <div className="card-title"><span>Falls and impacts</span><span className="fine">{events.length} in range</span></div>
+              {events.length === 0 ? <p className="muted">No fall or impact candidates.</p> : (
+                <ul className="ep-list">
+                  {events.slice(0, 10).map((e) => (
+                    <li key={e.id} className="sess-row">
+                      <span className="ep-when"><b>{fmtTime(e.t)}</b><span>{fmtDate(e.t, { day: 'numeric', month: 'short' })}</span></span>
+                      <span className="ep-mid"><span>Peak {e.peakG.toFixed(1)} g{e.freeFallMs ? `, free fall ${e.freeFallMs} ms` : ''}</span><span className="fine">{e.path === 'impact' ? 'impact without free fall' : 'free fall, then impact'}{e.demo ? ' · demo' : ''}</span></span>
+                      <span className={`chip ${e.outcome === 'cancelled' ? 'quiet' : e.outcome === 'pending' ? '' : 'warn'}`}>{e.outcome === 'cancelled' ? "Said I'm OK" : e.outcome === 'confirmed' ? 'Help requested' : e.outcome === 'no-response' ? 'No response' : 'Pending'}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <p className="fine" style={{ marginTop: 'var(--s-2)' }}>Heuristic candidates: some falls are missed, and dropping the headset looks like a fall.</p>
             </section>
 
             <section className="card" aria-label="Sessions">

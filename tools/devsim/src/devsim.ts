@@ -2,7 +2,8 @@
 //
 //   npm run sim -- --ws                      WebSocket on ws://0.0.0.0:8787 (the app's "Wi-Fi or simulator")
 //   npm run sim -- --stdout                  print lines (pipe into anything)
-//   npm run sim -- --ws --script manual --tremor 2   fixed manual controls instead of the scripted showcase
+//   npm run sim -- --ws --tremor 2           fixed manual controls instead of the scripted showcase
+//   npm run sim -- --ws --tremor 2,0 --phase 90      combined tremor: no-no + yes-yes, a quarter cycle apart (circular)
 //   npm run sim -- --ws --hostsim tremor_no_4.5hz_6dps
 //        stream the REAL firmware compiled by tools/hostsim (run `npm run hostsim` once to build it)
 //
@@ -18,18 +19,19 @@ import type { Axis } from '../../../app/src/logic/csv.ts';
 
 export interface Options {
   ws: boolean; port: number; stdout: boolean; script: 'showcase' | 'manual';
-  tremor: Axis | null; walking: boolean; hostsim: string | null; quiet: boolean;
+  tremor: Axis[]; phase: number; walking: boolean; hostsim: string | null; quiet: boolean;
 }
 
 export function parseArgs(argv: string[]): Options {
-  const o: Options = { ws: false, port: 8787, stdout: false, script: 'showcase', tremor: null, walking: false, hostsim: null, quiet: false };
+  const o: Options = { ws: false, port: 8787, stdout: false, script: 'showcase', tremor: [], phase: 0, walking: false, hostsim: null, quiet: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i], next = () => argv[++i];
     if (a === '--ws') o.ws = true;
     else if (a === '--port') o.port = Number(next());
     else if (a === '--stdout') o.stdout = true;
     else if (a === '--script') o.script = next() === 'manual' ? 'manual' : 'showcase';
-    else if (a === '--tremor') { const v = Number(next()); o.tremor = v === 0 || v === 1 || v === 2 ? v : null; o.script = 'manual'; }
+    else if (a === '--tremor') { o.tremor = next().split(',').map(Number).filter((v): v is Axis => v === 0 || v === 1 || v === 2); o.script = 'manual'; }
+    else if (a === '--phase') o.phase = Number(next()) || 0;
     else if (a === '--walking') { o.walking = true; o.script = 'manual'; }
     else if (a === '--hostsim') o.hostsim = next();
     else if (a === '--quiet') o.quiet = true;
@@ -64,7 +66,7 @@ export function startSource(o: Options, emit: (line: string) => void, log: (m: s
   }
 
   const gen = new DemoGenerator();
-  const manual: DemoControls = { ...DEFAULT_CONTROLS, tremorAxis: o.tremor, walking: o.walking };
+  const manual: DemoControls = { ...DEFAULT_CONTROLS, tremorAxes: o.tremor, comboPhaseDeg: o.phase, walking: o.walking };
   const t0 = performance.now();
   let lastLabel = '';
   emit('# Tremor Stream simulator (devsim) starting');

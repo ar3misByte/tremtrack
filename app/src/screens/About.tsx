@@ -15,6 +15,9 @@ export default function About() {
           <li>While walking, a tremor at a multiple of the step rate can't be separated from step bounce.</li>
           <li>Turn (yaw) drifts until the magnetometer is added (milestone 8).</li>
           <li>The detector has been tested on simulated motion only, not on real heads.</li>
+          <li>Fall detection is a heuristic: it misses slow slumps and soft landings, and dropping the headset looks like a fall. Caregiver alerts are not set up yet (milestone 6).</li>
+          <li>Posture is measured against your own calibrated neutral position; recalibrate if the headset shifts.</li>
+          <li>The SpO₂ value, including resting values, is an uncalibrated estimate.</li>
         </ul>
       </section>
       <section className="card">

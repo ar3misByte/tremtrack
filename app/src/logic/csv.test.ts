@@ -36,10 +36,28 @@ describe('parseLine', () => {
     expect(f.ppgState).toBe(-1);
   });
 
-  it('keeps values appended by newer firmware in extra', () => {
-    const f = frame(FULL + ',1.02,0,42');
-    expect(f.extra).toEqual([1.02, 0, 42]);
-    expect(f.bpm).toBe(74);
+  it('reads the axes mask and acceleration extremes (23-value shape)', () => {
+    const f = frame(FULL + ',5,2.31,0.95');
+    expect(f.axes).toBe(5);
+    expect(f.aMax).toBeCloseTo(2.31);
+    expect(f.aMin).toBeCloseTo(0.95);
+    expect(f.extra).toEqual([]);
+  });
+
+  it('always includes the alerting axis in the mask, and clears it when there is no tremor', () => {
+    expect(frame(FULL + ',1,1.0,1.0').axes).toBe(1 | 4);           // dir = 2 (yaw) added
+    expect(frame(FULL.replace(',1,2,0.4', ',0,2,0.4') + ',5,1.0,1.0').axes).toBe(0);   // no tremor: mask ignored
+  });
+
+  it('derives the mask from tremor + dir for older firmware', () => {
+    expect(frame(FULL).axes).toBe(4);
+    expect(frame(FULL).aMax).toBeNull();
+    expect(frame(OLD13).axes).toBe(0);
+  });
+
+  it('keeps values appended after the known fields in extra', () => {
+    expect(frame(FULL + ',5,2.31,0.95,42').extra).toEqual([42]);
+    expect(frame(FULL + ',1.02,0,42').extra).toEqual([1.02, 0, 42]);   // not a valid mask: kept raw
   });
 
   it('returns status text for # lines', () => {
@@ -74,8 +92,8 @@ describe('parseLine', () => {
 
 describe('formatLine', () => {
   it('round-trips through parseLine', () => {
-    const f = frame(FULL);
-    expect(formatLine(f)).toBe(FULL);
+    const line = FULL + ',5,2.31,0.95';
+    expect(formatLine(frame(line))).toBe(line);
   });
 });
 

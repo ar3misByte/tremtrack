@@ -32,11 +32,7 @@ export default defineConfig({
   ],
   build: {
     target: 'es2022',
-    rollupOptions: {
-      output: {
-        manualChunks: (id) => (id.includes('node_modules/three') || id.includes('@react-three') ? 'three' : undefined),
-      },
-    },
+    // no manual chunks: three.js and React Three Fiber stay in the lazily loaded 3D chunk
   },
   test: { environment: 'node', include: ['src/**/*.test.ts'] },
 });

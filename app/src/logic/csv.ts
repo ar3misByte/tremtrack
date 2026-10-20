@@ -1,13 +1,14 @@
 // Parser for the firmware's serial / WebSocket line protocol.
 //
-//   $,pitch,roll,yaw,fPitch,fRoll,fYaw,tremor,dir,ampP,ampR,ampY,freq,q,walking,stepHz,cycles,bpm,spo2,ppgState,pulse[,extra...]
+//   $,pitch,roll,yaw,fPitch,fRoll,fYaw,tremor,dir,ampP,ampR,ampY,freq,q,walking,stepHz,cycles,bpm,spo2,ppgState,pulse,axes,aMax,aMin[,extra...]
 //   # human-readable status
 //
 // Older firmware sends fewer fields; all three historical shapes are accepted:
 //   13 values (14 comma-separated fields incl. '$'): orientation + tremor only
 //   16 values (17 fields): + walking, stepHz, cycles
-//   20 values (21 fields): + bpm, spo2, ppgState, pulse      (current)
-// New fields are only ever APPENDED; anything after the 20th value lands in `extra`.
+//   20 values (21 fields): + bpm, spo2, ppgState, pulse
+//   23 values (24 fields): + axes (bit mask of shaking axes), aMax, aMin (|a| extremes, g)   (current)
+// New fields are only ever APPENDED; anything after the known values lands in `extra`.
 
 export type Axis = 0 | 1 | 2;                 // 0 = pitch ("yes-yes"), 1 = roll (tilt), 2 = yaw ("no-no")
 export type PpgState = -1 | 0 | 1 | 2 | 3;    // -1 = firmware does not send vitals; 0 no sensor; 1 no finger; 2 measuring; 3 valid
@@ -27,6 +28,9 @@ export interface Frame {
   spo2: number;                                      // 0 = no valid reading
   ppgState: PpgState;
   pulse: number | null;                              // filtered IR wave, null if not sent
+  axes: number;                                      // bit mask of shaking axes (1 pitch, 2 roll, 4 yaw); older firmware: derived from tremor + dir
+  aMax: number | null;                               // largest |a| (g) since the previous line, null if not sent
+  aMin: number | null;                               // smallest |a| (g) since the previous line
   nValues: number;                                   // how many values the line had (protocol shape)
   extra: number[];                                   // values appended by newer firmware
 }
@@ -56,6 +60,8 @@ export function parseLine(raw: string): ParsedLine | null {
 
   const hasGait = v.length >= 16 && v.slice(13, 16).every(Number.isFinite);
   const hasVitals = v.length >= 20 && v.slice(16, 20).every(Number.isFinite) && [0, 1, 2, 3].includes(v[18]);
+  const hasMotion = hasVitals && v.length >= 23 && Number.isInteger(v[20]) && v[20] >= 0 && v[20] <= 7 && Number.isFinite(v[21]) && Number.isFinite(v[22]);
+  const dirBit = tremor === 1 ? 1 << dir : 0;
 
   const frame: Frame = {
     pitch: v[0], roll: v[1], yaw: v[2],
@@ -71,14 +77,17 @@ export function parseLine(raw: string): ParsedLine | null {
     spo2: hasVitals ? v[17] : 0,
     ppgState: hasVitals ? (v[18] as PpgState) : -1,
     pulse: hasVitals ? v[19] : null,
+    axes: hasMotion ? (tremor === 1 ? v[20] | dirBit : 0) : dirBit,
+    aMax: hasMotion ? v[21] : null,
+    aMin: hasMotion ? v[22] : null,
     nValues: v.length,
-    extra: v.length > 20 ? v.slice(20) : [],
+    extra: v.length > (hasMotion ? 23 : 20) ? v.slice(hasMotion ? 23 : 20) : [],
   };
   return { kind: 'frame', frame };
 }
 
 /** Builds a protocol line from a frame (used by the demo generator and the device simulator). */
-export function formatLine(f: Omit<Frame, 'nValues' | 'extra'> & { extra?: number[] }): string {
+export function formatLine(f: Omit<Frame, 'nValues' | 'extra' | 'axes' | 'aMax' | 'aMin'> & { axes?: number; aMax?: number | null; aMin?: number | null; extra?: number[] }): string {
   const n = (x: number, d: number) => x.toFixed(d);
   const parts = [
     '$', n(f.pitch, 1), n(f.roll, 1), n(f.yaw, 1), n(f.fPitch, 2), n(f.fRoll, 2), n(f.fYaw, 2),
@@ -86,6 +95,7 @@ export function formatLine(f: Omit<Frame, 'nValues' | 'extra'> & { extra?: numbe
     f.walking ? '1' : '0', n(f.stepHz, 2), String(Math.round(f.cycles)),
     String(Math.round(f.bpm)), String(Math.round(f.spo2)), String(f.ppgState < 0 ? 0 : f.ppgState), n(f.pulse ?? 0, 1),
   ];
+  if (f.axes !== undefined) parts.push(String(f.axes), n(f.aMax ?? 1, 2), n(f.aMin ?? 1, 2));
   for (const x of f.extra ?? []) parts.push(String(x));
   return parts.join(',');
 }
@@ -106,3 +116,6 @@ export class LineSplitter {
     return out;
   }
 }
+
+/** Axes present in a bit mask, in axis order. */
+export const axesOf = (mask: number): Axis[] => ([0, 1, 2] as Axis[]).filter((a) => (mask >> a) & 1);

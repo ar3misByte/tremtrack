@@ -1,6 +1,10 @@
 # Firmware
 
-`tremor_monitor/tremor_monitor.ino` is currently **byte-identical** to `legacy/tremor_stream.ino`. Changes start in milestone 3 (±8 g accelerometer range and impact detection), then milestone 7 (Wi-Fi, BLE, MQTT) and milestone 8 (magnetometer).
+`tremor_monitor/tremor_monitor.ino` = the legacy detector (thresholds unchanged) plus, since milestone 3:
+- **±8 g accelerometer range** (was ±2 g, which saturated in impacts);
+- appended output fields **`axes`** (bit mask of every shaking axis, so "yes-yes" and "no-no" together are both reported), **`aMax`** and **`aMin`** (|a| extremes since the previous line, for fall detection).
+
+The host simulator shows the alert logic and walking detection are identical to the legacy sketch at all 5 sensitivity levels (see `tools/hostsim/README.md`). The legacy page still works with this firmware (it ignores the extra fields). Next: milestone 7 (Wi-Fi, BLE, MQTT) and milestone 8 (magnetometer).
 
 ## Flash (Arduino IDE)
 1. Board: **ESP32 Dev Module** (Espressif `esp32` core).

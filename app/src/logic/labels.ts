@@ -6,6 +6,20 @@ export const SOURCE_LABEL: Record<string, string> = {
   serial: 'USB', websocket: 'Wi-Fi', ble: 'Bluetooth', demo: 'Demo', replay: 'Replay', sample: 'Sample history',
 };
 
+import type { Axis } from './csv';
+
+/** "Nod + Turn" for a list of axes (combined tremor), "Turn" for one. */
+export function axesShort(axes: readonly Axis[]): string { return axes.map((a) => AXIS_SHORT[a]).join(' + '); }
+/** "Nodding and turning" style text for one or several axes. */
+export function axesLong(axes: readonly Axis[]): string {
+  if (axes.length === 1) return AXIS_LONG[axes[0]];
+  const verb = ['nodding ("yes-yes")', 'tilting', 'turning ("no-no")'];
+  const s = axes.map((a) => verb[a]).join(' and ');
+  return s[0].toUpperCase() + s.slice(1) + ' together';
+}
+/** Axes of a stored episode (older episodes only have the dominant axis). */
+export const episodeAxes = (e: { axis: Axis; axes?: Axis[] }): Axis[] => (e.axes && e.axes.length ? e.axes : [e.axis]);
+
 export function fmtDuration(s: number): string {
   if (!Number.isFinite(s) || s < 0) return '–';
   if (s < 60) return `${s < 10 ? s.toFixed(1) : Math.round(s)} s`;

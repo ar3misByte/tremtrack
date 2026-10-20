@@ -21,35 +21,49 @@ export interface DaySummary extends DailyScore {
   axisCounts: [number, number, number];
   meanFreqHz: number | null;
   maxEpisodeScore: number | null;
+  combinedEpisodes: number;      // episodes with several axes shaking together
+  stillS: number;
+  restlessS: number;
+  poseMonitoredS: number;
+  outsidePoseS: number;
 }
 
-/** Splits each session's monitored time over the local days its wall-clock span covers (pro rata). */
-function monitoredByDay(sessions: Session[]): Map<string, number> {
-  const m = new Map<string, number>();
+type DayTotals = { monitoredS: number; stillS: number; restlessS: number; poseMonitoredS: number; outsidePoseS: number };
+
+/** Splits each session's monitored, stillness and posture time over the local days its wall-clock span covers (pro rata). */
+function totalsByDay(sessions: Session[]): Map<string, DayTotals> {
+  const m = new Map<string, DayTotals>();
+  const add = (k: string, s: Session, w: number) => {
+    const t = m.get(k) ?? { monitoredS: 0, stillS: 0, restlessS: 0, poseMonitoredS: 0, outsidePoseS: 0 };
+    t.monitoredS += s.monitoredS * w; t.stillS += (s.stillS ?? 0) * w; t.restlessS += (s.restlessS ?? 0) * w;
+    t.poseMonitoredS += (s.poseMonitoredS ?? 0) * w; t.outsidePoseS += (s.outsidePoseS ?? 0) * w;
+    m.set(k, t);
+  };
   for (const s of sessions) {
     const span = Math.max(1, s.end - s.start);
     let a = s.start;
     while (a < s.end) {
       const b = Math.min(s.end, nextDay(a));
       const k = dayKey(a);
-      m.set(k, (m.get(k) ?? 0) + (s.monitoredS * (b - a)) / span);
+      add(k, s, (b - a) / span);
       a = b;
     }
-    if (s.end <= s.start) m.set(dayKey(s.start), (m.get(dayKey(s.start)) ?? 0) + s.monitoredS);
+    if (s.end <= s.start) add(dayKey(s.start), s, 1);
   }
   return m;
 }
 
 /** One summary per local day from `from` to `to` (inclusive), oldest first. Days without monitoring get score null. */
 export function summarizeDays(sessions: Session[], episodes: Episode[], from: number, to: number): DaySummary[] {
-  const mon = monitoredByDay(sessions);
+  const tot = totalsByDay(sessions);
   const byDay = new Map<string, Episode[]>();
   for (const e of episodes) { const k = dayKey(e.start); (byDay.get(k) ?? byDay.set(k, []).get(k)!).push(e); }
   const out: DaySummary[] = [];
   for (let d = startOfDay(from); d <= to; d = nextDay(d)) {
     const k = dayKey(d);
     const eps = byDay.get(k) ?? [];
-    const ds = dailyScore({ episodes: eps.map((e) => ({ ampDps: e.ampDps, freqHz: e.freqHz, durationS: e.durationS })), monitoredS: mon.get(k) ?? 0 });
+    const t = tot.get(k) ?? { monitoredS: 0, stillS: 0, restlessS: 0, poseMonitoredS: 0, outsidePoseS: 0 };
+    const ds = dailyScore({ episodes: eps.map((e) => ({ ampDps: e.ampDps, freqHz: e.freqHz, durationS: e.durationS })), monitoredS: t.monitoredS });
     const axisCounts: [number, number, number] = [0, 0, 0];
     eps.forEach((e) => axisCounts[e.axis]++);
     const fq = eps.filter((e) => e.freqHz > 0);
@@ -57,6 +71,8 @@ export function summarizeDays(sessions: Session[], episodes: Episode[], from: nu
       ...ds, day: k, dayStart: d, axisCounts,
       meanFreqHz: fq.length ? fq.reduce((s, e) => s + e.freqHz, 0) / fq.length : null,
       maxEpisodeScore: eps.length ? Math.max(...eps.map((e) => e.score)) : null,
+      combinedEpisodes: eps.filter((e) => (e.axes?.length ?? 1) > 1).length,
+      stillS: t.stillS, restlessS: t.restlessS, poseMonitoredS: t.poseMonitoredS, outsidePoseS: t.outsidePoseS,
     });
   }
   return out;

@@ -5,7 +5,7 @@ import type { Episode, Sample } from './model';
 
 const base: Frame = {
   pitch: 0, roll: 0, yaw: 0, fPitch: 0, fRoll: 0, fYaw: 0, tremor: false, dir: 0, ampP: 0.3, ampR: 0.3, ampY: 0.3, freq: 0, q: 0.2,
-  walking: false, stepHz: 0, cycles: 0, bpm: 72, spo2: 97, ppgState: 3, pulse: 0, nValues: 20, extra: [],
+  walking: false, stepHz: 0, cycles: 0, bpm: 72, spo2: 97, ppgState: 3, pulse: 0, axes: 0, aMax: 1, aMin: 1, nValues: 23, extra: [],
 };
 const T0 = Date.UTC(2026, 9, 20, 8, 0, 0);
 
@@ -90,5 +90,59 @@ describe('SessionTracker session and samples', () => {
   it('counts walking time', () => {
     const { tr } = run(10, (s) => ({ walking: s >= 5 }));
     expect(tr.session.walkingS).toBeCloseTo(5, 1);
+  });
+});
+
+describe('SessionTracker combined (multi-axis) episodes', () => {
+  const combo = (phase: number, yesOn: (s: number) => boolean = () => true) => (s: number): Partial<Frame> => {
+    if (s < 5 || s >= 15) return {};
+    const w = 2 * Math.PI * 5 * s;
+    const yes = yesOn(s);
+    return {
+      tremor: true, dir: 2, ampY: 10, ampP: yes ? 8 : 0.5, freq: 5, q: 0.8,
+      fYaw: 10 * Math.sin(w), fPitch: yes ? 8 * Math.sin(w + phase) : 0,
+      axes: yes ? 5 : 4,
+    };
+  };
+
+  it('records yes-yes + no-no in step as a diagonal combined episode with the combined amplitude', () => {
+    const { episodes } = run(20, combo(0));
+    const e = episodes[0];
+    expect(e.axes).toEqual([0, 2]);
+    expect(e.pattern).toBe('diagonal');
+    expect(e.axesActiveFrac![0]).toBeCloseTo(1, 2);
+    expect(e.ampByAxis![0]).toBeCloseTo(8, 6);
+    expect(e.ampDps).toBeCloseTo(Math.hypot(8, 10), 6);
+    expect(e.axis).toBe(2);
+  });
+
+  it('recognises a circular pattern', () => {
+    expect(run(20, combo(Math.PI / 2)).episodes[0].pattern).toBe('circular');
+  });
+
+  it('a second axis shaking only briefly does not make the episode combined', () => {
+    const { episodes } = run(20, combo(0, (s) => s >= 6 && s < 7));   // 1 s of 10 s
+    expect(episodes[0].axes).toEqual([2]);
+    expect(episodes[0].pattern).toBe('single');
+    expect(episodes[0].ampDps).toBeCloseTo(10, 6);
+  });
+
+  it('a combined episode scores at least as high as its strongest axis alone', () => {
+    const both = run(20, combo(0)).episodes[0].score;
+    const one = run(20, combo(0, () => false)).episodes[0].score;
+    expect(both).toBeGreaterThan(one);
+  });
+
+  it('keeps the shaking-axes mask in 1 s samples', () => {
+    const { samples } = run(20, combo(0));
+    expect(samples[8].axes).toBe(5);
+    expect(samples[2].axes).toBe(0);
+  });
+});
+
+describe('combined episode peak', () => {
+  it('is never below the combined mean', () => {
+    const { episodes } = run(20, (s) => (s >= 5 && s < 15 ? { tremor: true, dir: 2, ampY: 10 + Math.sin(s), ampP: 8 + Math.cos(s), freq: 5, axes: 5, fYaw: Math.sin(31 * s), fPitch: Math.sin(31 * s) } : {}));
+    expect(episodes[0].peakAmpDps).toBeGreaterThanOrEqual(episodes[0].ampDps);
   });
 });

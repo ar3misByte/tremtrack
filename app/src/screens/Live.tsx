@@ -1,20 +1,19 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { live, useLive, type LiveSnapshot } from '../device/live';
-import type { Axis } from '../logic/csv';
-import { useSettings } from '../state/settings';
+import { axesOf, type Axis } from '../logic/csv';
+import { useSettings, thresholds } from '../state/settings';
 import Circle2D from '../components/Circle2D';
 import { PulseTrace, Waveform } from '../components/Traces';
 import { IconCircle, IconCube, IconRecenter } from '../components/icons';
-import { useRecorder } from '../data/recorder';
+import { recorder, useRecorder } from '../data/recorder';
 import { download } from '../data/csvExport';
 import { formatRecording, gzipText } from '../logic/recording';
 import { scoreBand } from '../logic/severity';
-import { fmtDuration, fmtMinutes, fmtScore } from '../logic/labels';
+import { PATTERN_LABEL } from '../logic/multiaxis';
+import { PROMPT_TEXT } from '../logic/posture';
+import { AXIS_LONG, AXIS_SHORT, AXIS_VAR, axesLong, axesShort, fmtDuration, fmtMinutes, fmtPct, fmtScore } from '../logic/labels';
 
 const Head3D = lazy(() => import('../components/Head3D'));
-
-import { AXIS_LONG, AXIS_SHORT, AXIS_VAR } from '../logic/labels';
-export { AXIS_LONG, AXIS_SHORT };
 
 function headline(s: LiveSnapshot): { title: string; sub: string; tone: 'alert' | 'ok' | 'quiet' } {
   const f = s.frame;
@@ -23,30 +22,36 @@ function headline(s: LiveSnapshot): { title: string; sub: string; tone: 'alert' 
     return { title: 'Not connected', sub: 'Connect the headset, or try demo mode.', tone: 'quiet' };
   }
   if (s.tremorActive) {
-    return { title: 'Tremor detected', sub: `${AXIS_LONG[f.dir]}${f.freq > 0 ? `, about ${f.freq.toFixed(1)} Hz` : ''}${f.walking ? ', while walking' : ''}`, tone: 'alert' };
+    const axes = axesOf(f.axes);
+    const what = axes.length > 1 ? `${axesLong(axes)}${s.combo && s.combo.pattern !== 'single' ? `, ${PATTERN_LABEL[s.combo.pattern]}` : ''}` : AXIS_LONG[f.dir];
+    return { title: 'Tremor detected', sub: `${what}${f.freq > 0 ? `, about ${f.freq.toFixed(1)} Hz` : ''}${f.walking ? ', while walking' : ''}`, tone: 'alert' };
   }
   if (f.walking) return { title: 'Walking', sub: `Step rhythm ${f.stepHz > 0 ? f.stepHz.toFixed(1) + ' steps/s' : 'detected'} is ignored. Tremor needs a stronger signal now.`, tone: 'ok' };
   return { title: 'Steady', sub: 'No rhythmic shaking between 3.5 and 8.5 Hz.', tone: 'ok' };
 }
 
-function useTremorAnnouncer(active: boolean, dir: Axis | undefined) {
+function useTremorAnnouncer(active: boolean, axes: number) {
   const [msg, setMsg] = useState('');
   const prev = useRef(false);
+  const prevAxes = useRef(0);
   useEffect(() => {
-    if (active !== prev.current) {
-      setMsg(active ? `Tremor detected: ${dir !== undefined ? AXIS_LONG[dir] : ''}` : 'Tremor ended');
+    if (active !== prev.current || (active && axes !== prevAxes.current)) {
+      setMsg(active ? `Tremor detected: ${axesLong(axesOf(axes))}` : 'Tremor ended');
       prev.current = active;
+      prevAxes.current = axes;
     }
-  }, [active, dir]);
+  }, [active, axes]);
   return msg;
 }
 
 export default function Live({ onConnect }: { onConnect: () => void }) {
   const s = useLive();
   const st = useSettings();
+  const rec = useRecorder();
   const h = headline(s);
   const f = s.fresh ? s.frame : null;
-  const announce = useTremorAnnouncer(s.tremorActive, f?.dir);
+  const announce = useTremorAnnouncer(s.tremorActive, f?.axes ?? 0);
+  const axes = f && s.tremorActive ? axesOf(f.axes) : [];
 
   return (
     <div className="page wide">
@@ -58,6 +63,13 @@ export default function Live({ onConnect }: { onConnect: () => void }) {
           <p>{h.sub}</p>
         </div>
 
+        {rec.posturePrompt && (
+          <div className="notice prompt" role="status">
+            <span>{PROMPT_TEXT[rec.posturePrompt]}</span>
+            <button className="btn sm" onClick={() => recorder.dismissPosturePrompt()}>OK</button>
+          </div>
+        )}
+
         <section className={`card stage${s.tremorActive ? ' alert' : ''}`} aria-label="Head orientation">
           <div className="stage-view" role="img" aria-label={f ? `Head: nod ${live.disp.pitch.toFixed(0)}°, tilt ${live.disp.roll.toFixed(0)}°, turn ${live.disp.yaw.toFixed(0)}°` : 'Head view, no data'}>
             {st.viewMode === '3d'
@@ -66,9 +78,10 @@ export default function Live({ onConnect }: { onConnect: () => void }) {
           </div>
           <div className="stage-top">
             {s.tremorActive && f
-              ? <span className="chip alert">{AXIS_SHORT[f.dir]} · {f.freq.toFixed(1)} Hz</span>
+              ? <span className="chip alert">{axesShort(axes)} · {f.freq.toFixed(1)} Hz</span>
               : f ? <span className="chip ok">{f.walking ? 'Walking' : 'Steady'}</span> : <span className="chip quiet">No data</span>}
-            {s.source === 'demo' && <span className="chip quiet">Demo</span>}
+            {s.tremorActive && s.combo && s.combo.pattern !== 'single' && <span className="chip">{s.combo.pattern === 'independent' ? 'Two rhythms' : s.combo.pattern[0].toUpperCase() + s.combo.pattern.slice(1)}</span>}
+            {(s.source === 'demo' || s.source === 'replay') && <span className="chip quiet">{s.source === 'demo' ? 'Demo' : 'Replay'}</span>}
           </div>
           <div className="stage-bottom">
             <div className="segmented" role="group" aria-label="View">
@@ -79,9 +92,7 @@ export default function Live({ onConnect }: { onConnect: () => void }) {
           </div>
         </section>
 
-        {!f && (
-          <button className="btn primary" onClick={onConnect}>Connect a device</button>
-        )}
+        {!f && <button className="btn primary" onClick={onConnect}>Connect a device</button>}
 
         <div className="grid-3">
           <div className="card metric">
@@ -90,7 +101,7 @@ export default function Live({ onConnect }: { onConnect: () => void }) {
           </div>
           <div className="card metric">
             <div className="label">Amplitude</div>
-            <div className="value">{f ? Math.max(f.ampP, f.ampR, f.ampY).toFixed(1) : '–'}<small>°/s</small></div>
+            <div className="value">{f ? (axes.length > 1 ? Math.hypot(...axes.map((a) => [f.ampP, f.ampR, f.ampY][a])) : Math.max(f.ampP, f.ampR, f.ampY)).toFixed(1) : '–'}<small>°/s</small></div>
           </div>
           <div className="card metric">
             <div className="label">{f?.walking ? 'Steps' : 'Cycles'}</div>
@@ -98,6 +109,7 @@ export default function Live({ onConnect }: { onConnect: () => void }) {
           </div>
         </div>
         <TodayCard />
+        <PostureCard fresh={!!f} />
       </div>
 
       <div className="col">
@@ -118,6 +130,7 @@ export default function Live({ onConnect }: { onConnect: () => void }) {
 }
 
 function VitalsCard({ s }: { s: LiveSnapshot }) {
+  const r = useRecorder();
   const f = s.fresh ? s.frame : null;
   const st = f?.ppgState ?? -2;
   const ok = st === 3;
@@ -127,6 +140,8 @@ function VitalsCard({ s }: { s: LiveSnapshot }) {
     : st === 1 ? 'Rest a fingertip gently on the sensor (no pressing, keep it still).'
     : st === 2 ? 'Measuring. Hold still for about 10 seconds.'
     : 'Live reading. SpO₂ is an uncalibrated estimate from a hobby sensor.';
+  const rest = r.lastResting;
+  const restMin = Math.round(thresholds().resting.restMinS / 60);
   return (
     <section className="card" aria-label="Heart rate and oxygen">
       <div className="grid-2">
@@ -141,6 +156,12 @@ function VitalsCard({ s }: { s: LiveSnapshot }) {
       </div>
       <div style={{ marginTop: 'var(--s-3)' }}><PulseTrace active={ok} /></div>
       <p className="fine" style={{ marginTop: 'var(--s-2)' }} aria-live="polite">{msg}</p>
+      <div className="rest-line">
+        <span className="fine">Resting</span>
+        {rest
+          ? <span>{Math.round(rest.bpm)} bpm{rest.spo2 ? ` · ${Math.round(rest.spo2)} %` : ''} <span className={`chip ${rest.quality === 'good' ? 'ok' : rest.quality === 'fair' ? 'quiet' : 'warn'}`}>{rest.quality}</span></span>
+          : <span className="fine">after {restMin} min of keeping still</span>}
+      </div>
     </section>
   );
 }
@@ -152,18 +173,89 @@ function AxisCard({ s }: { s: LiveSnapshot }) {
     <section className="card" aria-label="Shaking by axis">
       <div className="card-title"><span>Shaking by axis</span><span className="fine">°/s in 3.5–8.5 Hz</span></div>
       {([0, 1, 2] as Axis[]).map((i) => {
-        const on = s.tremorActive && f?.dir === i;
+        const on = s.tremorActive && !!f && ((f.axes >> i) & 1) === 1;
         return (
           <div className={`axis-row${on ? ' on' : ''}`} key={i}>
             <i className="sw" style={{ background: `var(${AXIS_VAR[i]})` }} />
             <span>{AXIS_LONG[i]}</span>
-            <div className="track" role="meter" aria-valuemin={0} aria-valuemax={30} aria-valuenow={Number(amps[i].toFixed(1))} aria-label={`${AXIS_LONG[i]} amplitude`}>
+            <div className="track" role="meter" aria-valuemin={0} aria-valuemax={30} aria-valuenow={Number(amps[i].toFixed(1))} aria-label={`${AXIS_LONG[i]} amplitude${on ? ', shaking' : ''}`}>
               <i style={{ width: `${Math.min(1, amps[i] / 30) * 100}%`, background: on ? 'var(--accent)' : `var(${AXIS_VAR[i]})` }} />
             </div>
             <b>{amps[i].toFixed(1)}</b>
           </div>
         );
       })}
+      {s.combo && s.combo.pair && (
+        <p className="fine" style={{ marginTop: 'var(--s-2)' }}>
+          {AXIS_SHORT[s.combo.pair[0]]} {s.combo.freqHz[s.combo.pair[0]].toFixed(1)} Hz, {AXIS_SHORT[s.combo.pair[1]]} {s.combo.freqHz[s.combo.pair[1]].toFixed(1)} Hz
+          {s.combo.phaseDeg !== null && s.combo.pattern !== 'independent' ? `, ${Math.round(Math.abs(s.combo.phaseDeg))}° apart` : ''}: {PATTERN_LABEL[s.combo.pattern]}.
+        </p>
+      )}
+    </section>
+  );
+}
+
+function TodayCard() {
+  const r = useRecorder();
+  const t = r.today;
+  return (
+    <section className="card" aria-label="Today so far">
+      <div className="card-title"><span>Today so far</span><a className="fine" href="#/trends">Trends</a></div>
+      <div className="grid-3">
+        <div><div className="fine">Severity</div><div className="stat">{fmtScore(t?.score ?? null)}<span className="fine"> / 10</span></div><div className="fine">{scoreBand(t?.score ?? null)}</div></div>
+        <div><div className="fine">Episodes</div><div className="stat">{t?.episodes ?? 0}</div><div className="fine">{fmtMinutes(t?.tremorS ?? 0)} shaking</div></div>
+        <div><div className="fine">{r.current ? 'This episode' : 'This session'}</div><div className="stat">{r.current ? fmtDuration(r.current.durationS) : r.recording ? fmtMinutes(r.sessionMonitoredS) : '–'}</div><div className="fine">{r.current ? `score ${fmtScore(r.current.score)} so far` : r.recording ? `${r.sessionEpisodes} episode${r.sessionEpisodes === 1 ? '' : 's'}` : 'not recording'}</div></div>
+      </div>
+      {r.storageError && <p className="notice warn" role="alert" style={{ marginTop: 'var(--s-3)' }}>{r.storageError}</p>}
+    </section>
+  );
+}
+
+function PostureCard({ fresh }: { fresh: boolean }) {
+  const r = useRecorder();
+  const st = useSettings();
+  const pc = thresholds().posture;
+  const smp = r.lastSample;
+  const p = r.todayPosture;
+  const cal = r.calibration;
+  const dev = smp && smp.devForward !== null && smp.devForward !== undefined ? { forward: smp.devForward, tilt: smp.devTilt ?? 0 } : null;
+  const zoneText = { ok: 'Within your usual range', forward: 'Head forward', back: 'Head back', tilt: 'Tilted to one side' } as const;
+  return (
+    <section className="card" aria-label="Posture and stillness">
+      <div className="card-title"><span>Posture and stillness</span>{smp?.state && <span className="chip quiet">{smp.state === 'still' ? 'Still' : smp.state === 'restless' ? 'Restless' : smp.state === 'walking' ? 'Walking' : 'Moving a little'}</span>}</div>
+      {!st.neutralPose && cal.state !== 'collecting' && <p className="fine">Calibrate once while sitting comfortably upright. Posture is then measured against your own neutral position.</p>}
+      {dev && (
+        <div className="pose-grid">
+          <div><div className="fine">Forward / back</div><div className="stat">{dev.forward >= 0 ? `${dev.forward.toFixed(0)}° forward` : `${(-dev.forward).toFixed(0)}° back`}</div></div>
+          <div><div className="fine">Side tilt</div><div className="stat">{Math.abs(dev.tilt).toFixed(0)}°{Math.abs(dev.tilt) >= 1 ? (dev.tilt > 0 ? ' right' : ' left') : ''}</div></div>
+          <div className="pose-zone"><span className={`chip ${smp?.zone === 'ok' ? 'ok' : 'warn'}`}>{zoneText[smp?.zone ?? 'ok']}</span></div>
+        </div>
+      )}
+      <div className="grid-3" style={{ marginTop: 'var(--s-3)' }}>
+        <div><div className="fine">Still today</div><div className="stat">{fmtMinutes(p.stillS)}</div></div>
+        <div><div className="fine">Restless</div><div className="stat">{fmtMinutes(p.restlessS)}</div></div>
+        <div><div className="fine">Outside range</div><div className="stat">{p.poseMonitoredS > 0 ? fmtPct(p.outsidePoseS / p.poseMonitoredS) : '–'}</div></div>
+      </div>
+      {cal.state === 'collecting' && (
+        <div style={{ marginTop: 'var(--s-3)' }} role="status">
+          <p className="fine">Hold your head comfortably upright and still…</p>
+          <div className="progress"><i style={{ width: `${Math.round(cal.progress * 100)}%` }} /></div>
+        </div>
+      )}
+      {cal.state === 'failed' && <p className="notice warn" role="alert" style={{ marginTop: 'var(--s-3)' }}>{cal.reason}</p>}
+      {cal.state === 'done' && <p className="fine" role="status" style={{ marginTop: 'var(--s-3)' }}>Neutral position saved.</p>}
+      <div className="btn-row" style={{ marginTop: 'var(--s-3)' }}>
+        <button className="btn sm" onClick={() => recorder.calibrate()} disabled={!fresh || cal.state === 'collecting'}>{st.neutralPose ? 'Recalibrate neutral position' : 'Calibrate neutral position'}</button>
+        <label className="check"><input type="checkbox" checked={st.postureMonitoring} onChange={(e) => st.set({ postureMonitoring: e.target.checked })} /> Gentle reminders</label>
+      </div>
+      <details className="disclosure">
+        <summary>How this is measured</summary>
+        <div className="body">
+          <p>Each second the app looks at how much your head moved. Under {pc.stillMaxDeg}° is "still", over {pc.restlessMinDeg}° (not walking) is "restless".</p>
+          <p>After calibration, more than {pc.droopMaxDeg}° forward, {pc.backMaxDeg}° back or {pc.tiltMaxDeg}° to the side counts as outside your range. A gentle reminder appears after about {Math.round(pc.promptAfterS / 60)} minutes mostly outside it, at most once every {Math.round(pc.promptCooldownS / 60)} minutes.</p>
+          <p>Headsets sit differently on each person and can shift. Recalibrate if the numbers look off. These are comfort reminders, not a medical assessment.</p>
+        </div>
+      </details>
     </section>
   );
 }
@@ -171,7 +263,9 @@ function AxisCard({ s }: { s: LiveSnapshot }) {
 function DemoCard({ label }: { label: string }) {
   const [, force] = useState(0);
   const d = live.demo;
+  const m = d.manual;
   const upd = (fn: () => void) => { fn(); force((x) => x + 1); };
+  const toggleAxis = (a: Axis) => upd(() => { m.tremorAxes = m.tremorAxes.includes(a) ? m.tremorAxes.filter((x) => x !== a) : [...m.tremorAxes, a]; });
   return (
     <section className="card sunk" aria-label="Demo controls">
       <div className="card-title"><span>Demo controls</span>{d.scripted && label && <span className="chip quiet">{label}</span>}</div>
@@ -180,15 +274,27 @@ function DemoCard({ label }: { label: string }) {
         <button aria-pressed={!d.scripted} onClick={() => upd(() => { d.scripted = false; })}>Manual</button>
       </div>
       {!d.scripted && (
-        <div className="btn-row" style={{ marginTop: 'var(--s-3)' }}>
-          {([0, 2, 1] as Axis[]).map((a) => (
-            <button key={a} className="btn sm" aria-pressed={d.manual.tremorAxis === a} onClick={() => upd(() => { d.manual.tremorAxis = d.manual.tremorAxis === a ? null : a; })}>
-              {AXIS_SHORT[a]} tremor
-            </button>
-          ))}
-          <button className="btn sm" aria-pressed={d.manual.walking} onClick={() => upd(() => { d.manual.walking = !d.manual.walking; })}>Walking</button>
-          <button className="btn sm" aria-pressed={!d.manual.finger} onClick={() => upd(() => { d.manual.finger = !d.manual.finger; })}>Finger off</button>
-        </div>
+        <>
+          <p className="fine" style={{ marginTop: 'var(--s-3)' }}>Tremor axes (pick one or more)</p>
+          <div className="btn-row" style={{ marginTop: 'var(--s-2)' }}>
+            {([0, 2, 1] as Axis[]).map((a) => (
+              <button key={a} className="btn sm" aria-pressed={m.tremorAxes.includes(a)} onClick={() => toggleAxis(a)}>{AXIS_SHORT[a]}</button>
+            ))}
+            {m.tremorAxes.length > 1 && (
+              <div className="segmented" role="group" aria-label="Timing between the axes">
+                <button aria-pressed={m.comboPhaseDeg === 0} onClick={() => upd(() => { m.comboPhaseDeg = 0; })}>In step</button>
+                <button aria-pressed={m.comboPhaseDeg === 90} onClick={() => upd(() => { m.comboPhaseDeg = 90; })}>Quarter cycle</button>
+              </div>
+            )}
+          </div>
+          <div className="btn-row" style={{ marginTop: 'var(--s-2)' }}>
+            <button className="btn sm" aria-pressed={m.walking} onClick={() => upd(() => { m.walking = !m.walking; })}>Walking</button>
+            <button className="btn sm" aria-pressed={m.droopDeg > 0} onClick={() => upd(() => { m.droopDeg = m.droopDeg > 0 ? 0 : 22; m.still = m.droopDeg > 0; })}>Head forward</button>
+            <button className="btn sm" aria-pressed={m.still} onClick={() => upd(() => { m.still = !m.still; })}>Hold still</button>
+            <button className="btn sm" aria-pressed={!m.finger} onClick={() => upd(() => { m.finger = !m.finger; })}>Finger off</button>
+            <button className="btn sm" aria-pressed={m.fall} onClick={() => upd(() => { m.fall = !m.fall; })}>{m.fall ? 'Get up' : 'Simulate a fall'}</button>
+          </div>
+        </>
       )}
       <p className="fine" style={{ marginTop: 'var(--s-3)' }}>Simulated data that imitates the firmware's output. Not a recording of a real person.</p>
     </section>
@@ -243,40 +349,6 @@ function DisplayCard({ canSend }: { canSend: boolean }) {
   );
 }
 
-function HowComputed() {
-  return (
-    <section className="card flat">
-      <details className="disclosure" style={{ borderTop: 0, marginTop: 0, paddingTop: 0 }}>
-        <summary>How this is computed</summary>
-        <div className="body">
-          <p><b>Orientation.</b> The board's gyroscope and accelerometer are blended (complementary filter) into nod and tilt angles. Turn is integrated from the gyroscope only, so it drifts slowly: use Recenter.</p>
-          <p><b>Tremor.</b> Every 0.1 s the board looks at the last 1.5 s of motion on each axis. An alert needs all of: strong motion between 3.5 and 8.5 Hz, most of the energy in that band, shaking across the whole window, and at least 4 evenly spaced, repeating cycles. It takes about 1.7 s to raise an alert.</p>
-          <p><b>Walking.</b> Step bounce has harmonics inside the tremor band. While a step rhythm is detected, motion at a multiple of the step rate is ignored and a stronger signal is needed. A real tremor at exactly a step harmonic can't be told apart while walking.</p>
-          <p><b>Heart rate and SpO₂.</b> From the red and infrared light of a hobby sensor. SpO₂ uses a generic curve and is not calibrated.</p>
-          <p>This is a prototype for demonstration. It does not diagnose anything and has not been clinically validated.</p>
-        </div>
-      </details>
-    </section>
-  );
-}
-
-function TodayCard() {
-  const r = useRecorder();
-  const t = r.today;
-  return (
-    <section className="card" aria-label="Today so far">
-      <div className="card-title"><span>Today so far</span><a className="fine" href="#/trends">Trends</a></div>
-      <div className="grid-3">
-        <div><div className="fine">Severity</div><div className="stat">{fmtScore(t?.score ?? null)}<span className="fine"> / 10</span></div><div className="fine">{scoreBand(t?.score ?? null)}</div></div>
-        <div><div className="fine">Episodes</div><div className="stat">{t?.episodes ?? 0}</div><div className="fine">{fmtMinutes(t?.tremorS ?? 0)} shaking</div></div>
-        <div><div className="fine">{r.current ? 'This episode' : 'This session'}</div><div className="stat">{r.current ? fmtDuration(r.current.durationS) : r.recording ? fmtMinutes(r.sessionMonitoredS) : '–'}</div><div className="fine">{r.current ? `score ${fmtScore(r.current.score)} so far` : r.recording ? `${r.sessionEpisodes} episode${r.sessionEpisodes === 1 ? '' : 's'}` : 'not recording'}</div></div>
-      </div>
-      {r.storageError && <p className="notice warn" role="alert" style={{ marginTop: 'var(--s-3)' }}>{r.storageError}</p>}
-      <p className="fine" style={{ marginTop: 'var(--s-3)' }}>Every connection is saved on this device as a session. Tremor alerts longer than 1 s are saved as episodes.</p>
-    </section>
-  );
-}
-
 function RecordCard({ s }: { s: LiveSnapshot }) {
   const [busy, setBusy] = useState(false);
   const stop = async () => {
@@ -297,6 +369,24 @@ function RecordCard({ s }: { s: LiveSnapshot }) {
           ? <button className="btn accent sm" onClick={stop} disabled={busy}>Stop and download</button>
           : <button className="btn sm" onClick={() => live.startRawRecording()} disabled={!s.fresh}>Start recording</button>}
       </div>
+    </section>
+  );
+}
+
+function HowComputed() {
+  return (
+    <section className="card flat">
+      <details className="disclosure" style={{ borderTop: 0, marginTop: 0, paddingTop: 0 }}>
+        <summary>How this is computed</summary>
+        <div className="body">
+          <p><b>Orientation.</b> The board's gyroscope and accelerometer are blended (complementary filter) into nod and tilt angles. Turn is integrated from the gyroscope only, so it drifts slowly: use Recenter.</p>
+          <p><b>Tremor.</b> Every 0.1 s the board looks at the last 1.5 s of motion on each axis. An alert needs all of: strong motion between 3.5 and 8.5 Hz, most of the energy in that band, shaking across the whole window, and at least 4 evenly spaced, repeating cycles. It takes about 1.7 s to raise an alert.</p>
+          <p><b>Several axes at once.</b> When another axis (for example "yes-yes" alongside "no-no") passes the same tests on its own and is at least 30 % as strong, it is reported too. The app then compares the two signals: in step = diagonal, a quarter cycle apart = circular, different frequencies = two separate rhythms.</p>
+          <p><b>Walking.</b> Step bounce has harmonics inside the tremor band. While a step rhythm is detected, motion at a multiple of the step rate is ignored and a stronger signal is needed. A real tremor at exactly a step harmonic can't be told apart while walking.</p>
+          <p><b>Heart rate and SpO₂.</b> From the red and infrared light of a hobby sensor. SpO₂ uses a generic curve and is not calibrated. "Resting" values only use readings taken after several minutes of keeping still.</p>
+          <p>This is a prototype for demonstration. It does not diagnose anything and has not been clinically validated.</p>
+        </div>
+      </details>
     </section>
   );
 }

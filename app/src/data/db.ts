@@ -1,6 +1,7 @@
 // Local storage (IndexedDB). Everything here stays on this device until cloud sync (milestone 6-7).
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
-import type { Episode, Sample, Session } from '../logic/model';
+import type { Episode, FallEvent, Sample, Session } from '../logic/model';
+import type { RestingReading } from '../logic/vitals';
 import { STORAGE } from '../config/thresholds';
 import { DAY_MS } from '../logic/daily';
 
@@ -8,21 +9,29 @@ interface TremorDB extends DBSchema {
   sessions: { key: string; value: Session; indexes: { start: number } };
   episodes: { key: string; value: Episode; indexes: { start: number; sessionId: string } };
   samples: { key: [string, number]; value: Sample; indexes: { t: number } };
+  vitals: { key: string; value: RestingReading; indexes: { t: number } };
+  events: { key: string; value: FallEvent; indexes: { t: number } };
 }
 
 export const DB_NAME = 'htm-local';
 let dbp: Promise<IDBPDatabase<TremorDB>> | null = null;
 
 export function db() {
-  dbp ??= openDB<TremorDB>(DB_NAME, 1, {
-    upgrade(d) {
-      const s = d.createObjectStore('sessions', { keyPath: 'id' });
-      s.createIndex('start', 'start');
-      const e = d.createObjectStore('episodes', { keyPath: 'id' });
-      e.createIndex('start', 'start');
-      e.createIndex('sessionId', 'sessionId');
-      const m = d.createObjectStore('samples', { keyPath: ['sessionId', 't'] });
-      m.createIndex('t', 't');
+  dbp ??= openDB<TremorDB>(DB_NAME, 2, {
+    upgrade(d, oldVersion) {
+      if (oldVersion < 1) {
+        const s = d.createObjectStore('sessions', { keyPath: 'id' });
+        s.createIndex('start', 'start');
+        const e = d.createObjectStore('episodes', { keyPath: 'id' });
+        e.createIndex('start', 'start');
+        e.createIndex('sessionId', 'sessionId');
+        const m = d.createObjectStore('samples', { keyPath: ['sessionId', 't'] });
+        m.createIndex('t', 't');
+      }
+      if (oldVersion < 2) {                         // milestone 3: resting vitals and fall events
+        d.createObjectStore('vitals', { keyPath: 'id' }).createIndex('t', 't');
+        d.createObjectStore('events', { keyPath: 'id' }).createIndex('t', 't');
+      }
     },
     blocking() { void dbp?.then((x) => x.close()); dbp = null; },
   });
@@ -35,18 +44,30 @@ export const onDataChanged = (fn: () => void) => { listeners.add(fn); return () 
 export const notifyDataChanged = () => listeners.forEach((l) => l());
 
 // ---------- writes ----------
-export async function saveBatch(b: { session?: Session; episodes?: Episode[]; samples?: Sample[] }) {
+export async function saveBatch(b: { session?: Session; episodes?: Episode[]; samples?: Sample[]; vitals?: RestingReading[]; events?: FallEvent[] }) {
   const d = await db();
-  const tx = d.transaction(['sessions', 'episodes', 'samples'], 'readwrite');
+  const tx = d.transaction(['sessions', 'episodes', 'samples', 'vitals', 'events'], 'readwrite');
   if (b.session) void tx.objectStore('sessions').put(b.session);
   for (const e of b.episodes ?? []) void tx.objectStore('episodes').put(e);
   for (const s of b.samples ?? []) void tx.objectStore('samples').put(s);
+  for (const v of b.vitals ?? []) void tx.objectStore('vitals').put(v);
+  for (const e of b.events ?? []) void tx.objectStore('events').put(e);
   await tx.done;
-  if (b.session || b.episodes?.length) notifyDataChanged();
+  if (b.session || b.episodes?.length || b.vitals?.length || b.events?.length) notifyDataChanged();
 }
 
-export async function importRecords(sessions: Session[], episodes: Episode[]) {
-  await saveBatch({ episodes });
+export async function listVitals(from: number, to: number, f: Filter): Promise<RestingReading[]> {
+  const all = await (await db()).getAllFromIndex('vitals', 't', IDBKeyRange.bound(from, to));
+  return all.filter((v) => f.includeDemo || !v.demo);
+}
+
+export async function listEvents(from: number, to: number, f: Filter): Promise<FallEvent[]> {
+  const all = await (await db()).getAllFromIndex('events', 't', IDBKeyRange.bound(from, to));
+  return all.filter((e) => f.includeDemo || !e.demo);
+}
+
+export async function importRecords(sessions: Session[], episodes: Episode[], vitals: RestingReading[] = [], events: FallEvent[] = []) {
+  await saveBatch({ episodes, vitals, events });
   const d = await db();
   const tx = d.transaction('sessions', 'readwrite');
   for (const s of sessions) void tx.store.put(s);
@@ -74,9 +95,9 @@ export async function listSamples(from: number, to: number): Promise<Sample[]> {
 
 export async function counts() {
   const d = await db();
-  const [sessions, episodes, samples] = await Promise.all([d.count('sessions'), d.count('episodes'), d.count('samples')]);
+  const [sessions, episodes, samples, vitals, events] = await Promise.all([d.count('sessions'), d.count('episodes'), d.count('samples'), d.count('vitals'), d.count('events')]);
   const demoSessions = (await d.getAll('sessions')).filter((s) => s.demo).length;
-  return { sessions, episodes, samples, demoSessions };
+  return { sessions, episodes, samples, vitals, events, demoSessions };
 }
 
 // ---------- maintenance ----------
@@ -93,8 +114,8 @@ export async function pruneSamples(now = Date.now()) {
 /** Deletes demo / replay / sample records only. */
 export async function deleteDemoData() {
   const d = await db();
-  const tx = d.transaction(['sessions', 'episodes', 'samples'], 'readwrite');
-  for (const store of ['sessions', 'episodes', 'samples'] as const) {
+  const tx = d.transaction(['sessions', 'episodes', 'samples', 'vitals', 'events'], 'readwrite');
+  for (const store of ['sessions', 'episodes', 'samples', 'vitals', 'events'] as const) {
     let cur = await tx.objectStore(store).openCursor();
     while (cur) { if (cur.value.demo) await cur.delete(); cur = await cur.continue(); }
   }
@@ -105,19 +126,19 @@ export async function deleteDemoData() {
 /** Deletes everything stored locally by this app (IndexedDB data and settings). */
 export async function deleteAllLocalData() {
   const d = await db();
-  const tx = d.transaction(['sessions', 'episodes', 'samples'], 'readwrite');
-  await Promise.all([tx.objectStore('sessions').clear(), tx.objectStore('episodes').clear(), tx.objectStore('samples').clear(), tx.done]);
+  const tx = d.transaction(['sessions', 'episodes', 'samples', 'vitals', 'events'], 'readwrite');
+  await Promise.all([tx.objectStore('sessions').clear(), tx.objectStore('episodes').clear(), tx.objectStore('samples').clear(), tx.objectStore('vitals').clear(), tx.objectStore('events').clear(), tx.done]);
   try { localStorage.removeItem('htm.settings.v1'); } catch { /* storage unavailable */ }
   notifyDataChanged();
 }
 
 export async function exportAll() {
   const d = await db();
-  const [sessions, episodes, samples] = await Promise.all([d.getAll('sessions'), d.getAll('episodes'), d.getAll('samples')]);
+  const [sessions, episodes, samples, vitals, events] = await Promise.all([d.getAll('sessions'), d.getAll('episodes'), d.getAll('samples'), d.getAll('vitals'), d.getAll('events')]);
   return {
-    format: 'head-tremor-monitor-export', version: 1, exportedAt: new Date().toISOString(),
-    note: 'Prototype data. Not a medical record. Scores are engineering scores, not clinical ratings.',
-    sessions, episodes, samples,
+    format: 'head-tremor-monitor-export', version: 2, exportedAt: new Date().toISOString(),
+    note: 'Prototype data. Not a medical record. Scores are engineering scores, not clinical ratings. SpO2 is an uncalibrated estimate. Fall events are heuristic candidates.',
+    sessions, episodes, samples, restingVitals: vitals, fallEvents: events,
   };
 }
 

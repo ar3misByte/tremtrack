@@ -2,6 +2,7 @@
 // canvases and the 3D view read them every animation frame, React re-renders at 10 Hz via useLive().
 import { useSyncExternalStore } from 'react';
 import { parseLine, type Frame } from '../logic/csv';
+import { analyzeCombined, type ComboResult } from '../logic/multiaxis';
 import { applyMapping, Exaggerator, relativeTo, type Euler3 } from '../logic/orientation';
 import { DEFAULT_CONTROLS, type DemoControls } from '../logic/demoGen';
 import { useSettings } from '../state/settings';
@@ -26,6 +27,7 @@ export interface LiveSnapshot {
   lastStatus: string;           // last '#' line from the firmware
   lastRaw: string;
   invalidCount: number;
+  combo: ComboResult | null;     // how the axes move together while several shake (null otherwise)
   demoLabel: string;
   canSend: boolean;
   recordingRaw: boolean;
@@ -173,6 +175,13 @@ class Live {
     this.emit();
   }
 
+  /** Combined-axis analysis over the last 1.5 s of band-passed signal. */
+  private combo(): ComboResult {
+    const N = 75;
+    const sig = this.wave.map((w) => Float64Array.from({ length: N }, (_, k) => w[(this.head - N + k + RING) % RING])) as [Float64Array, Float64Array, Float64Array];
+    return analyzeCombined(sig, this.frame!.axes);
+  }
+
   private makeSnap(): LiveSnapshot {
     const fresh = this.lastRx > 0 && performance.now() - this.lastRx < STALE_MS;
     return {
@@ -181,6 +190,7 @@ class Live {
       lastRaw: this.lastRaw, invalidCount: this.invalid, demoLabel: this.demoLabel,
       canSend: !!this.source?.send && this.conn === 'open',
       recordingRaw: !!this.raw, rawLines: this.raw?.entries.length ?? 0, replayLabel: this.replayLabel,
+      combo: fresh && this.frame && this.frame.tremor && (this.frame.axes & (this.frame.axes - 1)) !== 0 ? this.combo() : null,
     };
   }
 }

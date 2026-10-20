@@ -19,7 +19,7 @@ Text lines terminated by `\n` (a trailing `\r` is ignored). USB serial at 115200
 ### Data line
 
 ```
-$,pitch,roll,yaw,fPitch,fRoll,fYaw,tremor,dir,ampP,ampR,ampY,freq,q,walking,stepHz,cycles,bpm,spo2,ppgState,pulse
+$,pitch,roll,yaw,fPitch,fRoll,fYaw,tremor,dir,ampP,ampR,ampY,freq,q,walking,stepHz,cycles,bpm,spo2,ppgState,pulse,axes,aMax,aMin
 ```
 
 | # | Field | Unit / values | Since |
@@ -38,13 +38,16 @@ $,pitch,roll,yaw,fPitch,fRoll,fYaw,tremor,dir,ampP,ampR,ampY,freq,q,walking,step
 | 18 | spo2 | %, 0 = no valid reading. Uncalibrated estimate | 20-value shape |
 | 19 | ppgState | 0 no sensor, 1 no finger, 2 measuring, 3 valid | 20-value shape |
 | 20 | pulse | filtered IR wave, arbitrary units | 20-value shape |
+| 21 | axes | bit mask of axes shaking now: 1 pitch, 2 roll, 4 yaw (e.g. 5 = yes-yes + no-no). 0 without tremor. Always includes `dir` while `tremor` = 1 | 23-value shape (milestone 3) |
+| 22 | aMax | largest \|a\| (g) over the 100 Hz samples since the previous line (±8 g range) | 23-value shape |
+| 23 | aMin | smallest \|a\| (g) over the same samples | 23-value shape |
 
-**Compatibility rule:** new fields are only ever **appended**. Parsers must accept 13, 16 and 20 values, and keep any further values as "extra". Older parsers, like `legacy/tremor_circle.html`, ignore the extra values. Implemented and tested in `app/src/logic/csv.ts`.
+**Compatibility rule:** new fields are only ever **appended**. Parsers must accept 13, 16, 20 and 23 values, and keep any further values as "extra". Without `axes`, the app derives the mask from `tremor` and `dir`; without `aMax`/`aMin`, fall detection is off. Older parsers, like `legacy/tremor_circle.html`, ignore the extra values. Implemented and tested in `app/src/logic/csv.ts`.
 
-Example (20 values, a "no-no" tremor at 5.5 Hz):
+Example (23 values, "no-no" with "yes-yes" at 5.5 Hz, about 1 g):
 
 ```
-$,12.3,-4.5,30.1,1.20,-0.50,8.75,1,2,0.4,0.3,9.8,5.5,0.82,0,0.00,7,74,97,3,-12.4
+$,12.3,-4.5,30.1,6.10,-0.50,8.75,1,2,7.2,0.3,9.8,5.5,0.82,0,0.00,7,74,97,3,-12.4,5,1.03,0.97
 ```
 
 ### Status line
@@ -72,8 +75,9 @@ Each line is the offset in ms from `start`, a tab, then the protocol line exactl
 ## 2. Planned local additions
 
 These are not implemented yet. Each will be appended to the data line and listed in the table above when it lands:
-- Milestone 3: peak \|a\| in g since the last line (impact detection); posture deviation.
 - Milestone 8: magnetometer heading quality flag.
+
+(Posture deviation is computed in the app from pitch and roll against the calibrated neutral pose, so it needs no protocol field.)
 
 ## 3. Cloud MQTT (milestone 6)
 

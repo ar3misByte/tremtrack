@@ -10,8 +10,8 @@ A prototype that tracks head tremor from a head-worn ESP32 + MPU6050, with heart
 |---|---|
 | 1. Skeleton, protocol parser, simulators, live 3D view (USB / WebSocket / demo) | **done** |
 | 2. Local data (IndexedDB), episodes, severity score, history, demo replay | **done** |
-| 3. Posture and stillness, fall detection (firmware ±8 g), resting vitals | next |
-| 4. Medication, tags, correlations, type hints | |
+| 3. Posture and stillness, fall detection (firmware ±8 g), resting vitals, combined-axis tremor | **done** |
+| 4. Medication, tags, correlations, type hints | next |
 | 5. Doctor report PDF | |
 | 6. AWS stack, provisioning, simulator to cloud, `docs/AWS_SETUP.md` | |
 | 7. Firmware Wi-Fi / BLE / MQTT, live cloud view, sync | |
@@ -47,6 +47,8 @@ npm run build && npm run size -w app      # bundle budget
 node tools/hostsim/run.mjs --check        # detector regression against the legacy baseline
 npm run e2e:local -w app                  # real firmware -> devsim -> app in a browser (needs npm run dev)
 npm run e2e:history -w app                # replay -> recorder -> IndexedDB -> Trends (needs npm run dev)
+npm run e2e:fall -w app                   # demo fall -> alert -> I'm OK / no response -> Trends (needs npm run dev)
+node tools/hostsim/make-fixtures.mjs      # regenerate firmware-output test fixtures after a firmware change
 npm run screenshots -w app                # docs/screenshots at phone and desktop width
 ```
 
@@ -55,6 +57,6 @@ npm run screenshots -w app                # docs/screenshots at phone and deskto
 ```
 firmware/   ESP32 sketch (Arduino IDE)          app/     React + Vite + three.js PWA
 tools/      hostsim (firmware on the host), devsim (stream simulator)
-docs/       ARCHITECTURE, TELEMETRY_PROTOCOL, SEVERITY, DATA_MODEL, DETECTOR_BASELINE, HEAD_MODEL, PRIVACY, COSTS, AWS_SETUP
+docs/       ARCHITECTURE, TELEMETRY_PROTOCOL, SEVERITY, FALLS_POSTURE_VITALS, DATA_MODEL, DETECTOR_BASELINE, HEAD_MODEL, PRIVACY, COSTS, AWS_SETUP
 legacy/     the original sketch and page (read-only reference)
 ```

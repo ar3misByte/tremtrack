@@ -2,13 +2,15 @@
 
 This app handles health-related personal data: head-motion patterns, heart rate, SpO₂, and later medication and symptom logs. This file lists what is stored, where, for how long, and how to delete it. It is updated in every milestone that changes the answer.
 
-## Current state (milestone 2)
+## Current state (milestone 3)
 
 | Data | Where | Retention | How to delete |
 |---|---|---|---|
-| Display settings (view, exaggeration, WebSocket address, sensitivity, text size, demo filter) | Browser `localStorage`, key `htm.settings.v1` | Until deleted | Settings → Delete all my data, or clear site data |
+| Settings (view, exaggeration, WebSocket address, sensitivity, text size, demo filter, **neutral head pose** (two angles), feature switches, threshold overrides) | Browser `localStorage`, key `htm.settings.v1` | Until deleted | Settings → Delete all my data, or clear site data |
 | Sessions and tremor episodes (times, axis, frequency, amplitude, score, heart rate during the episode) | Browser IndexedDB `htm-local` | Until deleted | Settings → Delete all my data |
-| One-second samples (orientation, stillness, tremor share, heart rate, SpO₂) | IndexedDB `htm-local` | 30 days, then deleted automatically | Settings → Delete all my data |
+| One-second samples (orientation, stillness, posture deviation, tremor share, heart rate, SpO₂) | IndexedDB `htm-local` | 30 days, then deleted automatically | Settings → Delete all my data |
+| Resting heart-rate and SpO₂ readings, with quality | IndexedDB `htm-local` | Until deleted | Settings → Delete all my data |
+| Fall / impact candidates and your answer (I'm OK / help / no response) | IndexedDB `htm-local` | Until deleted | Settings → Delete all my data |
 | Raw stream recordings | Only in files **you** download from the Live screen | Your files | Delete the files |
 | Live sensor stream | Memory only (last 5 s for the charts) | Gone when the page closes | n/a |
 

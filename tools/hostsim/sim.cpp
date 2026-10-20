@@ -64,6 +64,7 @@ struct Scenario {
   bool walk = false; double stepHz = 1.8, walkT0 = 0, walkT1 = 1e9;
   std::vector<Tremor> tremors;
   bool fall = false; double fallT = 0;
+  double freeFallS = 0.35, dipG = 0.05, impactG = 9.0, endPitch = 85;   // fall shape (see angles())
   bool coherent = false;           // all tremors share one frequency wobble / amplitude modulation (one oscillator, several axes)
   double crossTalk = 0;            // yaw rate leaking into the pitch gyro (board tilted on the head: sin(tilt))
   double fingerOff0 = -1, fingerOff1 = -1;   // finger removed in this window
@@ -172,11 +173,12 @@ struct Motion {
       ang[tr.axis] += env * am * tr.A / (2 * M_PI * tr.f) * sin(ph);
     }
     if (sc.fall) {
-      double tf = sc.fallT, ff = 0.35;
-      if (t >= tf) ang[0] += 85 * mj((t - tf) / ff);
-      if (t >= tf && t < tf + ff) gScale = 0.05;           // free fall: almost no specific force
-      if (t >= tf + ff && t < tf + ff + 0.04) {             // impact: 40 ms half-sine, ~9 g peak
-        vert += 8.0 * sin(M_PI * (t - tf - ff) / 0.04);
+      double tf = sc.fallT, ff = sc.freeFallS;
+      double rot = std::max(ff, 0.3);                       // the head turns over during the fall
+      if (t >= tf) ang[0] += sc.endPitch * mj((t - tf) / rot);
+      if (ff > 0 && t >= tf && t < tf + ff) gScale = sc.dipG;   // free fall (dipG ~0) or a partial dip (sitting down)
+      if (t >= tf + ff && t < tf + ff + 0.04) {             // impact: 40 ms half-sine
+        vert += (sc.impactG - 1.0) * sin(M_PI * (t - tf - ff) / 0.04);
       }
     }
   }
@@ -307,9 +309,14 @@ std::vector<Scenario> scenarios() {
   { Scenario s; s.name = "combo_partial"; s.desc = "No-no 5 Hz 12 dps for 30 s; yes-yes joins for the middle 10 s"; s.dur = 50; s.coherent = true; s.tremors = { { 2, 5.0, 12, 10, 40 }, { 0, 5.0, 9, 20, 30 } }; add(s); }
   { Scenario s; s.name = "crosstalk_no_15deg"; s.desc = "Pure no-no 5 Hz 12 dps, board tilted 15 deg (26 % leaks into pitch): must stay single-axis"; s.dur = 50; s.crossTalk = 0.26; s.tremors = { { 2, 5.0, 12, 10, 40 } }; add(s); }
   { Scenario s; s.name = "fall"; s.desc = "Still, free fall 0.35 s, ~9 g impact, lying still"; s.dur = 30; s.fall = true; s.fallT = 10; add(s); }
-  { Scenario s; s.name = "showcase"; s.desc = "Demo recording: still, no-no tremor, walking, yes-yes tremor, finger off (120 s)"; s.dur = 120;
-    s.walk = true; s.stepHz = 1.9; s.walkT0 = 36; s.walkT1 = 56;
-    s.tremors = { { 2, 5.2, 12, 10, 28 }, { 0, 4.6, 9, 62, 76 } }; s.fingerOff0 = 92; s.fingerOff1 = 106; add(s); }
+  { Scenario s; s.name = "showcase"; s.desc = "Demo recording: still, no-no tremor, walking, yes-yes + no-no together, finger off, a fall (130 s)"; s.dur = 130;
+    s.walk = true; s.stepHz = 1.9; s.walkT0 = 36; s.walkT1 = 56; s.coherent = true;
+    s.tremors = { { 2, 5.2, 12, 10, 28 }, { 2, 4.8, 12, 62, 78 }, { 0, 4.8, 9, 62, 78 } }; s.fingerOff0 = 88; s.fingerOff1 = 100;
+    s.fall = true; s.fallT = 112; s.freeFallS = 0.35; s.impactG = 8; s.endPitch = 80; add(s); }
+  { Scenario s; s.name = "fall_trip"; s.desc = "Trip without free fall: 6 g impact, ends lying (70 deg), still"; s.dur = 30; s.fall = true; s.fallT = 10; s.freeFallS = 0; s.impactG = 6; s.endPitch = 70; add(s); }
+  { Scenario s; s.name = "headset_dropped"; s.desc = "Headset dropped on a table: free fall, 7 g, lies flat (cannot be told from a fall)"; s.dur = 30; s.fall = true; s.fallT = 10; s.freeFallS = 0.3; s.impactG = 7; s.endPitch = 90; add(s); }
+  { Scenario s; s.name = "sit_down_hard"; s.desc = "Sitting down hard: 0.6 g dip, 2.2 g bump, stays upright and still"; s.dur = 30; s.fall = true; s.fallT = 10; s.freeFallS = 0.25; s.dipG = 0.6; s.impactG = 2.2; s.endPitch = 0; add(s); }
+  { Scenario s; s.name = "jump_while_walking"; s.desc = "Walking, a small jump (free fall 0.25 s, 3 g landing), keeps walking"; s.dur = 40; s.walk = true; s.stepHz = 1.9; s.fall = true; s.fallT = 15; s.freeFallS = 0.25; s.impactG = 3; s.endPitch = 0; add(s); }
   { Scenario s; s.name = "no_finger"; s.desc = "Still; finger off the PPG sensor from 10 s to 30 s"; s.dur = 50; s.fingerOff0 = 10; s.fingerOff1 = 30; add(s); }
   return v;
 }

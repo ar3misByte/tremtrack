@@ -1,21 +1,23 @@
 # Data model
 
 Status:
-- **Local (IndexedDB): implemented in milestone 2.**
+- **Local (IndexedDB): implemented in milestone 2, extended in milestone 3 (database version 2).**
 - Milestone 4 adds tags, medications and doses.
 - Milestone 6 adds the DynamoDB single-table design.
 
 Types: `app/src/logic/model.ts`. Storage: `app/src/data/db.ts`. Writer: `app/src/data/recorder.ts`.
 
-## Local database `htm-local` (version 1)
+## Local database `htm-local` (version 2)
 
 | Store | Key | Indexes | Holds | Kept |
 |---|---|---|---|---|
-| `sessions` | `id` | `start` | one row per connection: source, start/end, monitored time, tremor and walking time, episode count, sensitivity, `open` | until deleted |
-| `episodes` | `id` | `start`, `sessionId` | one row per stored tremor episode: times, duration, dominant axis and axis shares, mean/peak amplitude, frequency, displacement, band share, cycles, walking share, heart rate, score and its version, sensitivity | until deleted |
-| `samples` | `[sessionId, t]` | `t` | one row per second: mean orientation, orientation spread (stillness), tremor share, max band amplitude, frequency, walking share, last valid heart rate and SpO₂, highest PPG state | 30 days (`STORAGE.sampleRetentionDays`), pruned at start-up |
+| `sessions` | `id` | `start` | one row per connection: source, start/end, monitored time, tremor and walking time, episode count, sensitivity, `open`; v2 adds still, restless, pose-monitored and outside-range seconds | until deleted |
+| `episodes` | `id` | `start`, `sessionId` | one row per stored tremor episode: times, duration, dominant axis and axis shares, **all axes involved, per-axis share and amplitude, pattern (single / diagonal / circular / two rhythms / mixed)**, amplitude (combined across axes), peak, frequency, displacement, band share, cycles, walking share, heart rate, score and its version, sensitivity | until deleted |
+| `samples` | `[sessionId, t]` | `t` | one row per second: mean orientation, orientation spread, motion state (still / normal / restless / walking), posture deviation and zone vs the neutral pose, tremor share, shaking-axes mask, max band amplitude, frequency, walking share, last valid heart rate and SpO₂, highest PPG state | 30 days (`STORAGE.sampleRetentionDays`), pruned at start-up |
+| `vitals` (v2) | `id` | `t` | resting heart-rate / SpO₂ readings: median bpm and SpO₂ of a 30 s window after ≥ 3 min of low motion, valid share, bpm IQR, motion, rested time, quality (good / fair / poor) | until deleted |
+| `events` (v2) | `id` | `t` | fall / impact candidates: impact time, rule path, peak g, free-fall ms, orientation change, outcome (pending / cancelled / confirmed / no-response), caregiver alert state | until deleted |
 
-All rows carry `demo: true` when the source is demo mode, a replay, or the generated sample history, so they can be hidden from Trends and deleted separately.
+Rows written before version 2 lack the new optional fields; the app treats them as single-axis episodes and sessions without posture data. All rows carry `demo: true` when the source is demo mode, a replay, or the generated sample history, so they can be hidden from Trends and deleted separately.
 
 ## How rows are produced
 

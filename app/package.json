@@ -14,7 +14,8 @@
     "size": "node scripts/size-budget.mjs",
     "screenshots": "node scripts/screenshots.mjs",
     "e2e:local": "node scripts/e2e-local.mjs",
-    "e2e:history": "node scripts/e2e-history.mjs"
+    "e2e:history": "node scripts/e2e-history.mjs",
+    "e2e:fall": "node scripts/e2e-fall.mjs"
   },
   "dependencies": {
     "@fontsource-variable/manrope": "^5.3.0",

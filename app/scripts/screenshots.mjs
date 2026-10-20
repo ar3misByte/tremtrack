@@ -1,5 +1,5 @@
-// Captures key screens at phone and desktop width into docs/screenshots/.
-// Usage: start the app (npm run dev, or npm run preview), then: node scripts/screenshots.mjs [baseUrl]
+// Captures key screens at phone and desktop width into docs/screenshots/, and fails on page errors
+// or horizontal overflow. Start the app first (npm run dev), then: node scripts/screenshots.mjs [baseUrl]
 import { chromium } from 'playwright';
 import { mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -15,9 +15,12 @@ async function session(name, viewport, scale) {
   const page = await ctx.newPage();
   page.on('pageerror', (e) => errors.push(`${name}: ${e.message}`));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(`${name} console: ${m.text()}`); });
+  const file = (f) => fileURLToPath(new URL(`${name}-${f}.png`, out));
+  const shot = async (f, full = false) => { await page.evaluate(() => window.scrollTo(0, 0)); await page.waitForTimeout(150); await page.screenshot({ path: file(f), fullPage: full }); };
+  const shotAt = async (f, selector) => { await page.locator(selector).first().scrollIntoViewIfNeeded(); await page.waitForTimeout(200); await page.screenshot({ path: file(f) }); };
+
   await page.goto(base + '/#/live');
   await page.waitForTimeout(800);
-  const shot = async (file, full = false) => { await page.evaluate(() => window.scrollTo(0, 0)); await page.waitForTimeout(150); return page.screenshot({ path: fileURLToPath(new URL(`${name}-${file}.png`, out)), fullPage: full }); };
   await shot('01-not-connected');
   await page.getByRole('button', { name: /Change connection/ }).click();
   await page.waitForTimeout(300);
@@ -26,43 +29,51 @@ async function session(name, viewport, scale) {
   await page.getByRole('button', { name: 'Manual' }).click();
   await page.waitForTimeout(2500);
   await shot('03-live-steady');
-  await shot('03b-live-steady-full', true);
-  await page.getByRole('button', { name: 'Turn tremor' }).click();
+  await page.getByRole('button', { name: 'Turn', exact: true }).click();
   await page.waitForTimeout(2600);
   await shot('04-live-tremor');
+  await page.getByRole('button', { name: 'Nod', exact: true }).click();
+  await page.waitForTimeout(2500);
+  await shot('04b-live-combined');
+  await shotAt('04c-live-combined-axes', '[aria-label="Shaking by axis"]');
   await page.getByRole('button', { name: /2D/ }).click();
   await page.waitForTimeout(800);
   await shot('05-live-2d-tremor');
   await page.getByRole('button', { name: /3D/ }).click();
-  await page.goto(base + '/#/trends');
-  await page.waitForTimeout(500);
-  await shot('06-trends-after-demo');
+  // posture: stop the tremor, hold still, calibrate, then lean forward
+  await page.getByRole('button', { name: 'Turn', exact: true }).click();
+  await page.getByRole('button', { name: 'Nod', exact: true }).click();
+  await page.getByRole('button', { name: 'Hold still' }).click();
+  await page.waitForTimeout(2500);
+  await page.getByRole('button', { name: /Calibrate neutral position/ }).click();
+  await page.waitForTimeout(3800);
+  await page.getByRole('button', { name: 'Head forward' }).click();
+  await page.waitForTimeout(3000);
+  await shotAt('05b-live-posture', '[aria-label="Posture and stillness"]');
+  await page.getByRole('button', { name: 'Head forward' }).click();
+  // fall
+  await page.getByRole('button', { name: 'Simulate a fall' }).click();
+  await page.getByRole('alertdialog').waitFor({ timeout: 8000 });
+  await page.waitForTimeout(1200);
+  await page.screenshot({ path: file('05c-fall-alert') });
+  await page.getByRole('button', { name: "I'm OK" }).click();
+  await page.getByRole('button', { name: 'Get up' }).click();
+  // trends with sample history
   await page.goto(base + '/#/settings');
   await page.getByRole('button', { name: 'Load 4 weeks of sample history' }).click();
   await page.waitForTimeout(800);
+  await shot('10-settings', true);
   await page.goto(base + '/#/trends');
-  await page.waitForTimeout(1200);
+  await page.waitForTimeout(1500);
   await shot('07-trends');
   await shot('07b-trends-full', true);
-  await page.locator('.chart-wrap').hover({ position: { x: 200, y: 90 } });
-  await page.waitForTimeout(200);
-  await page.locator('.chart-wrap').screenshot({ path: fileURLToPath(new URL(`${name}-08-chart-tooltip.png`, out)) });
-  await page.locator('.ep-row').first().click();
-  await page.waitForTimeout(300);
-  await page.screenshot({ path: fileURLToPath(new URL(`${name}-09-episode-sheet.png`, out)) });
-  await page.keyboard.press('Escape');
-  await page.goto(base + '/#/settings');
-  await page.waitForTimeout(500);
-  await shot('10-settings', true);
-  await page.goto(base + '/#/live');
-  await page.waitForTimeout(800);
-  await page.evaluate(() => window.scrollTo(0, 900));
-  await page.waitForTimeout(300);
-  await page.screenshot({ path: fileURLToPath(new URL(`${name}-11-live-today.png`, out)) });
-  // horizontal overflow check
+  await shotAt('08-trends-resting', '[aria-label="Resting heart rate and SpO2"]');
+  await shotAt('08b-trends-falls', '[aria-label="Impact events"]');
+  const combined = page.locator('.ep-row', { hasText: 'Nod + Turn' }).first();
+  if (await combined.count()) { await combined.click(); await page.waitForTimeout(300); await page.screenshot({ path: file('09-episode-sheet-combined') }); await page.keyboard.press('Escape'); }
   for (const r of ['live', 'trends', 'settings', 'about']) {
     await page.goto(base + '/#/' + r);
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(400);
     const over = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     if (over > 0) errors.push(`${name}: horizontal overflow ${over}px on #/${r}`);
   }
@@ -73,3 +84,4 @@ await session('phone', { width: 390, height: 844 }, 2);
 await session('desktop', { width: 1440, height: 900 }, 1);
 await browser.close();
 console.log(errors.length ? 'PROBLEMS:\n' + errors.join('\n') : 'no page errors, no horizontal overflow');
+if (errors.length) process.exit(1);

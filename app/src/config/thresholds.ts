@@ -27,7 +27,8 @@ export const STORAGE = {
 };
 
 export const SEVERITY = {
-  version: 1,
+  // v2: the episode amplitude is the combined magnitude across all axes shaking (multi-axis tremor)
+  version: 2,
   // ---- episode score ----
   // Intensity is the estimated angular displacement amplitude theta = A / (2 pi f) in degrees,
   // where A is the band amplitude (deg/s) and f the frequency (Hz). Mapped on a log scale:
@@ -49,4 +50,90 @@ export const SEVERITY = {
   bMax: 0.3,
   /** Days with less monitored time than this show "not enough data" instead of a score (s). */
   minMonitoredS: 10 * 60,
+};
+
+export const MULTIAXIS = {
+  // How two shaking axes relate (logic/multiaxis.ts). The firmware decides WHICH axes shake.
+  /** Frequencies further apart than max(this, independentRel x the higher one) = two separate rhythms (Hz). */
+  independentMinHz: 0.6,
+  independentRel: 0.12,
+  /** Below this phase coherence (0..1) the relation is "mixed". */
+  minCoherence: 0.6,
+  /** Phase within this of 0 or 180 degrees = diagonal. */
+  diagonalMaxDeg: 30,
+  /** Phase within this of 90 degrees = circular. */
+  circularTolDeg: 35,
+  /** In an episode, an axis counts as part of it when it was shaking for at least this share of the alert time. */
+  episodeAxisMinShare: 0.3,
+};
+
+export const FALL = {
+  // Rule-based fall / sudden-impact candidate (logic/fall.ts). A HEURISTIC: it will miss falls and raise
+  // false alarms, and a head-worn sensor cannot tell a fall from the headset being dropped.
+  /** |a| below this = free fall (g). */
+  freeFallG: 0.5,
+  /** Free fall must last at least this long (s). */
+  freeFallMinS: 0.1,
+  /** After free fall, an impact above this within impactWindowS counts (g). */
+  impactG: 2.5,
+  impactWindowS: 1.0,
+  /** An impact above this counts even without free fall (trips, slips) (g). */
+  impactOnlyG: 4.0,
+  /** Stillness is checked from settleS after the impact, for stillWindowS. */
+  settleS: 0.5,
+  stillWindowS: 2.0,
+  /** "Still": |a| within [stillMinG, stillMaxG] and orientation spread below stillMaxDeg, for stillMinShare of the window. */
+  stillMinG: 0.85,
+  stillMaxG: 1.15,               // walking bounces about +-0.2 g, so it is never "still"
+  stillMaxDeg: 4,
+  stillMinShare: 0.85,
+  /** Also require the head to end up in a different orientation (lying). Off: a fall can end sitting up. */
+  requireOrientationChange: false,
+  minOrientationChangeDeg: 30,
+  /** No new candidate for this long after one (s). */
+  cooldownS: 15,
+  /** Time the user has to cancel before the caregiver alert (s). */
+  cancelCountdownS: 30,
+};
+
+export const POSTURE = {
+  // Neutral-pose posture and stillness (logic/posture.ts). Mounting differs between people: calibrate first.
+  /** Hold still this long to calibrate the neutral pose (s). */
+  calibrateS: 3,
+  /** Calibration fails if the orientation spreads more than this while holding still (deg). */
+  calibrateMaxSpreadDeg: 2,
+  /** Outside the pose range: head forward (chin down) more than this (deg). */
+  droopMaxDeg: 15,
+  /** ... or back (chin up) more than this (deg). */
+  backMaxDeg: 20,
+  /** ... or tilted sideways more than this (deg). */
+  tiltMaxDeg: 12,
+  /** Seconds with orientation spread below this are "still" (deg). */
+  stillMaxDeg: 0.4,
+  /** Seconds with orientation spread above this (not walking) are "restless" (deg). */
+  restlessMinDeg: 2.0,
+  /** Gentle prompt after this long mostly outside the range (s), then not again for promptCooldownS. */
+  promptAfterS: 120,
+  promptMinShare: 0.8,
+  promptCooldownS: 600,
+};
+
+export const RESTING = {
+  // Resting heart rate and SpO2 (logic/vitals.ts). Only readings with ppgState = 3 count.
+  /** Low motion for at least this long before readings count as "resting" (s). */
+  restMinS: 180,
+  /** Low motion: orientation spread per second below this (deg), not walking, no tremor alert. */
+  restMaxMotionDeg: 1.0,
+  /** One resting reading per this many seconds while resting. */
+  readingEveryS: 30,
+  /** Reading quality: good when at least this share of seconds had a valid reading and the heart-rate spread (IQR) is small. */
+  goodValidShare: 0.8,
+  goodMaxSpreadBpm: 6,
+  fairValidShare: 0.5,
+  /** Flags (never a diagnosis): a day counts as "low" when its median resting SpO2 estimate is below this (%). */
+  lowSpo2Pct: 92,
+  /** ... and "high" when its median resting heart rate is above this (bpm). */
+  highBpm: 100,
+  /** Flag when at least this many of the last 7 days are low / high. */
+  flagDays: 2,
 };

@@ -1,4 +1,4 @@
-# Tremor severity score (version 1)
+# Tremor severity score (version 2)
 
 **An engineering score for self-tracking, from 0 to 10. It is not a clinical scale.** It can't be compared with clinical tremor ratings (for example TETRAS or Fahn–Tolosa–Marín), and it isn't evidence about any condition. Its only use is to compare your own days and weeks, measured the same way.
 
@@ -7,7 +7,7 @@ Code: `app/src/logic/severity.ts`. Weights: `app/src/config/thresholds.ts` (`SEV
 ## Inputs, per episode
 
 An episode is a period when the device's tremor alert is on. Alerts less than 3 s apart are merged, and alerts shorter than 1 s are dropped. During the episode the app uses:
-- **A**: mean band amplitude on the alerting axis (°/s), from the firmware;
+- **A**: band amplitude (°/s), from the firmware. For one axis, the mean amplitude on the alerting axis. **Version 2:** when several axes shook for at least 30 % of the episode (for example "yes-yes" and "no-no" together), A is their combined magnitude √(Σ aᵢ²), so a combined tremor never scores lower than either axis alone. See `FALLS_POSTURE_VITALS.md` §1;
 - **f**: mean frequency (Hz);
 - **D**: duration (s).
 
