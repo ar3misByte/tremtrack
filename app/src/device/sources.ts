@@ -123,8 +123,14 @@ export class BleSource implements DeviceSource {
   private dec = new TextDecoder();
   private writes: Promise<void> = Promise.resolve();
 
-  /** `getBluetooth` is replaceable so tests can supply a fake. */
-  constructor(private readonly getBluetooth: () => Bluetooth | undefined = () => (typeof navigator !== 'undefined' ? navigator.bluetooth : undefined)) {}
+  /**
+   * `getBluetooth` is replaceable so tests can supply a fake. `showAll`: list every Bluetooth device nearby instead of only
+   * those advertising the headset's service (a fallback when the headset is not listed; pick the one named HeadTremor-…).
+   */
+  constructor(
+    private readonly getBluetooth: () => Bluetooth | undefined = () => (typeof navigator !== 'undefined' ? navigator.bluetooth : undefined),
+    private readonly showAll = false,
+  ) {}
 
   async start(cb: SourceCallbacks): Promise<void> {
     const bt = this.getBluetooth();
@@ -133,7 +139,7 @@ export class BleSource implements DeviceSource {
     this.stopped = false;
     this.retry = 0;
     cb.state('connecting', 'Choose your headset in the list (it is named HeadTremor-…).');
-    this.dev = await bt.requestDevice({ filters: [{ services: [BLE_UUID.service] }] });
+    this.dev = await bt.requestDevice(this.showAll ? { acceptAllDevices: true, optionalServices: [BLE_UUID.service] } : { filters: [{ services: [BLE_UUID.service] }] });
     this.dev.addEventListener('gattserverdisconnected', this.onDrop);
     await this.connectGatt();
   }

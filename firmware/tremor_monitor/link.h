@@ -179,6 +179,24 @@ class SrvCb : public NimBLEServerCallbacks {
 };
 RxCb rxCb; SrvCb srvCb;
 
+/**
+ * The 31-byte advertisement holds only the flags and the 128-bit service UUID (18 bytes), which is what the phone's
+ * Bluetooth chooser filters on. The name goes in the scan response, so it fits however long it is.
+ */
+bool bleAdvertise() {
+  NimBLEAdvertising *adv = NimBLEDevice::getAdvertising();
+  NimBLEAdvertisementData ad, sr;
+  ad.setFlags(BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP);
+  ad.addServiceUUID(HTM_BLE_SERVICE);
+  sr.setName(devName);
+  adv->setAdvertisementData(ad);
+  adv->setScanResponseData(sr);
+  adv->enableScanResponse(true);
+  bool ok = adv->start();
+  Serial.printf("# BLE advertising %s as \"%s\"\n", ok ? "started" : "FAILED to start", devName);
+  return ok;
+}
+
 void bleBegin() {
   NimBLEDevice::init(devName);
   NimBLEDevice::setMTU(247);
@@ -188,11 +206,8 @@ void bleBegin() {
   bleTx = svc->createCharacteristic(HTM_BLE_TX, NIMBLE_PROPERTY::NOTIFY);
   NimBLECharacteristic *rx = svc->createCharacteristic(HTM_BLE_RX, NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR);
   rx->setCallbacks(&rxCb);
-  NimBLEAdvertising *adv = NimBLEDevice::getAdvertising();
-  adv->addServiceUUID(HTM_BLE_SERVICE);
-  adv->setName(devName);
-  adv->enableScanResponse(true);
-  adv->start();
+  srv->start();                                   // NimBLE 2.x registers the GATT services here: without it no phone can find them
+  bleAdvertise();
 }
 
 // Lines are packed into notifications of at most MTU-3 bytes.
@@ -297,7 +312,7 @@ void emit(void *, int, const char *) {}
 
 // ---------------- task ----------------
 void task(void *) {
-  uint32_t lastWsCheck = 0, nBle = 0, lastInfo = 0;
+  uint32_t lastWsCheck = 0, nBle = 0, lastInfo = 0, lastAdvCheck = 0;
   float accMax = 0, accMin = 99;
   for (;;) {
     HtmFrame f;
@@ -355,6 +370,10 @@ void task(void *) {
       if (ms - lastHeartbeat > 900000UL) publishStatus(true);
     }
 #endif
+    if (!bleConnected && ms - lastAdvCheck > 5000) {
+      lastAdvCheck = ms;
+      if (!NimBLEDevice::getAdvertising()->isAdvertising()) { status("BLE was not advertising: restarting"); bleAdvertise(); }
+    }
     // "I'm OK" button: answers a fall countdown
     if (reporterOn && reporter.fallWaiting() && digitalRead(HTM_OK_BUTTON_PIN) == LOW) reporter.fallOutcome(epochMs(), "cancelled");
     if (ms - lastInfo > 60000 && (bleConnected || (wsStarted && ws.connectedClients()))) { lastInfo = ms; info(); }

@@ -20,7 +20,7 @@ button, input, select { font: inherit; color: inherit; }
 .shell { min-height: 100%; padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + var(--s-4)); transition: background-color 400ms var(--ease); }
 .shell.alert { background: var(--bg-alert); }
 .page { width: 100%; max-width: var(--content-max); margin: 0 auto; padding: var(--s-4) var(--gutter) 0; display: grid; gap: var(--s-4); }
-@media (min-width: 960px) {
+@media (min-width: 720px) {
   .page.wide { max-width: var(--content-max-wide); grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); align-items: start; column-gap: var(--s-6); }
   .page.wide > .col { display: grid; gap: var(--s-4); }
   .page.wide > .full { grid-column: 1 / -1; }
@@ -169,11 +169,11 @@ details.disclosure .body { font-size: var(--fs-sm); color: var(--ink-2); padding
 .placeholder { display: grid; gap: var(--s-3); }
 .placeholder ul { margin: 0; padding-left: 1.1rem; color: var(--ink-2); font-size: var(--fs-sm); display: grid; gap: 4px; }
 code { font-family: var(--font-mono); font-size: 0.9em; background: var(--surface-sunk); padding: 1px 5px; border-radius: 6px; }
-@media (min-width: 960px) { .page.wide > .topbar.full { grid-column: 1 / -1; } }
+@media (min-width: 720px) { .page.wide > .topbar.full { grid-column: 1 / -1; } }
 
 /* ---------- trends ---------- */
 .topline { display: flex; align-items: end; justify-content: space-between; gap: var(--s-3); flex-wrap: wrap; }
-@media (min-width: 960px) { .page.wide > .full { grid-column: 1 / -1; } }
+@media (min-width: 720px) { .page.wide > .full { grid-column: 1 / -1; } }
 .hero-figure { font-size: 4rem; font-weight: var(--fw-light); letter-spacing: var(--tracking-display); line-height: 1; font-variant-numeric: proportional-nums; }
 .hero-figure small, .big-number small { font-size: var(--fs-lg); color: var(--ink-2); font-weight: var(--fw-regular); letter-spacing: 0; margin-left: var(--s-1); }
 .stat { font-size: var(--fs-lg); font-weight: var(--fw-medium); margin-top: 2px; }
@@ -268,4 +268,5 @@ p.fine + .btn-row, dl.kv + .field, .kv + p.fine { margin-top: var(--s-3); }
   details.disclosure summary { min-height: 44px; }
 }
 .notice.stack { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s-2); }
-@media (max-width: 959px) { .col > .notice { margin-bottom: var(--s-4); } }
+@media (min-width: 640px) { .page:not(.wide) { max-width: 40rem; } }
+.page.wide > .col { display: grid; gap: var(--s-4); min-width: 0; }

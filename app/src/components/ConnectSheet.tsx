@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { gunzipToText, parseRecording } from '../logic/recording';
 import { live, useLive } from '../device/live';
-import { bleSupported, serialSupported, type SourceKind } from '../device/sources';
+import { BleSource, bleSupported, serialSupported, type SourceKind } from '../device/sources';
 import { useSettings } from '../state/settings';
 import { useFocusTrap } from './useFocusTrap';
 import { IconBluetooth, IconClose, IconPlay, IconReplay, IconUsb, IconWifi } from './icons';
@@ -53,6 +53,18 @@ export default function ConnectSheet({ onClose }: { onClose: () => void }) {
 
         {opt('serial', <IconUsb />, 'USB cable', serialSupported() ? 'Chrome or Edge on a computer. Close the Arduino Serial Monitor first.' : 'Not available in this browser (needs Chrome or Edge on a computer).', !serialSupported())}
         {opt('ble', <IconBluetooth />, 'Bluetooth (phone)', bleSupported() ? 'Direct link to the headset, no router needed. Chrome on Android, or Chrome / Edge on a computer.' : 'Not available in this browser. Use Chrome on Android.', !bleSupported())}
+        {bleSupported() && (
+          <details className="disclosure" style={{ margin: '0 0 var(--s-3)' }}>
+            <summary>Headset not in the Bluetooth list?</summary>
+            <div className="fine" style={{ display: 'grid', gap: 'var(--s-2)', padding: 'var(--s-2) 0' }}>
+              <span>1. The headset prints <code>BLE advertising started as "HeadTremor-…"</code> in the Arduino Serial Monitor right after it starts. If it does not, re-flash the latest firmware.</span>
+              <span>2. On the phone or tablet turn <b>Bluetooth</b> and <b>Location</b> on, and allow <b>Nearby devices</b> for Chrome (Android Settings → Apps → Chrome → Permissions).</span>
+              <span>3. Close any other app or device that is connected to the headset; it accepts one connection at a time. Then press the board's reset button.</span>
+              <span>4. Still nothing? Show every Bluetooth device nearby and pick the one named <b>HeadTremor-…</b>:</span>
+              <span><button className="btn sm" onClick={async () => { await live.connect('ble', undefined, new BleSource(undefined, true)); if (live.getSnapshot().conn !== 'error') onClose(); }}>Show all Bluetooth devices</button></span>
+            </div>
+          </details>
+        )}
         {opt('websocket', <IconWifi />, 'Wi-Fi or simulator', `Streams from ${wsUrl}. The headset prints its address as ws://<ip>:81 once Wi-Fi is set up (Settings → Headset).`)}
         <div className="field" style={{ marginTop: 0 }}>
           <label htmlFor="wsurl" className="fine">WebSocket address</label>

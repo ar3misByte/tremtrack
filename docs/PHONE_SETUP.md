@@ -92,7 +92,7 @@ Live view from anywhere, history in your own AWS account, caregiver alerts by em
 | Symptom | What to try |
 |---|---|
 | No *Bluetooth* option / greyed out | Use **Chrome** on Android, from an **https** address (not `http://`, not a desktop-served copy). |
-| Headset not in the list | Is the serial line `# LINK Bluetooth "HeadTremor-…"` printed? Phone Bluetooth and Location on? Reset the board. Only one phone can be connected at a time; close the app on other devices. |
+| Headset not in the list | **1. Re-flash the latest firmware.** An earlier build never registered its Bluetooth service, so phones could not find it. The Serial Monitor must print `# BLE advertising started as "HeadTremor-…"`; if it says FAILED, send me that line. **2.** Phone/tablet: Bluetooth **and Location** on, and Chrome allowed **Nearby devices** (Android Settings → Apps → Chrome → Permissions). **3.** Only one device can be connected at a time: close the app elsewhere, press the board's reset button. **4.** In the connect sheet open *Headset not in the Bluetooth list?* → **Show all Bluetooth devices** and pick `HeadTremor-…`. If it appears there but not in the normal list, tell me. |
 | Connects, then *Waiting for data* | Keep the board still for 2 s after reset (calibration). If the serial monitor shows lines but the phone shows none, tell me the exact text under the connection button. |
 | Choppy or slow | Bluetooth with a small packet size is slow; the headset automatically sends fewer lines (10 per second) and still reports tremor and falls correctly. Moving closer helps. |
 | Wi-Fi never connects | The network must be **2.4 GHz** (the ESP32 has no 5 GHz). Check the *Messages from the headset* list in Settings → Headset. |

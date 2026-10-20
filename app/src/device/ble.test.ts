@@ -85,6 +85,14 @@ describe('BleSource', () => {
     expect(states.at(-1)).toBe('idle');
   });
 
+  it('can list every nearby device when the service filter finds nothing', async () => {
+    const dev = new FakeDevice(); let asked: unknown;
+    const src = new BleSource(() => ({ requestDevice: async (o: unknown) => { asked = o; return dev; } }) as unknown as Bluetooth, true);
+    await src.start({ line: () => {}, state: () => {} });
+    expect(asked).toEqual({ acceptAllDevices: true, optionalServices: [BLE_UUID.service] });
+    expect(dev.connects).toBe(1);
+  });
+
   it('explains when the browser has no Bluetooth', async () => {
     const src = new BleSource(() => undefined);
     await expect(src.start({ line: () => {}, state: () => {} })).rejects.toThrow(/Chrome on Android/);
