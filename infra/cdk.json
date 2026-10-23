@@ -5,7 +5,7 @@
     "alertEmail": "",
     "budgetEmail": "",
     "budgetUsd": 5,
-    "appOrigins": "http://localhost:5173",
+    "appOrigins": "http://localhost:5173,https://ar3misbyte.github.io/tremtrack",
     "withHosting": false
   }
 }

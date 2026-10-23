@@ -73,7 +73,7 @@ npm run test -w infra        # stack template + cloud path against local mocks
 npm run cdk:synth            # builds the CloudFormation template
 ```
 
-*Expected:* `Tests  18 passed`, and `cdk synth` finishes without errors. A note about "feature flags" is harmless.
+*Expected:* `Tests  19 passed`, and `cdk synth` finishes without errors. A note about "feature flags" is harmless.
 
 **Bootstrap CDK once per account and region.** This creates the `CDKToolkit` stack: a small S3 bucket and an ECR repository used for deployment assets.
 
@@ -94,7 +94,7 @@ npx cdk deploy -c alertEmail=carer@example.com -c budgetEmail=you@example.com --
 
 - `alertEmail` receives caregiver alerts: a confirmed or unanswered fall, a long tremor episode, a low resting SpO₂ estimate. Leave it out for no alerts.
 - To host the app on CloudFront as well, run `npm run build` in the repository root first, then add `-c withHosting=true`.
-- To allow another browser origin (CORS and sign-in redirects), add `-c appOrigins=http://localhost:5173,https://your.domain`.
+- The app origins default (in `infra/cdk.json`) to `http://localhost:5173` and this project's GitHub Pages site `https://ar3misbyte.github.io/tremtrack`. To allow another browser origin (CORS and sign-in redirects), pass the full list: `-c appOrigins=http://localhost:5173,https://ar3misbyte.github.io/tremtrack,https://your.domain`.
 
 The CLI lists the IAM changes and deploys about 50 resources. *Expected* at the end:
 
@@ -173,9 +173,9 @@ npm run sim -- --mqtt tools/aws/out/htm-01/devsim.json --minutes 10
 
 1. **Get the setup link.** It carries your pool ids and addresses (nothing secret):
    ```powershell
-   node tools/aws/app-link.mjs --app-url https://<your-name>.github.io/<repository>/
+   node tools/aws/app-link.mjs --app-url https://ar3misbyte.github.io/tremtrack/
    ```
-   The app must be served from an address you gave the stack: deploy with `-c appOrigins=http://localhost:5173,https://<your-name>.github.io/<repository>` (a path is allowed). With `-c withHosting=true` the stack hosts the app itself and `app-link` uses that address.
+   The app must be served from an address you gave the stack. `https://ar3misbyte.github.io/tremtrack` is the default; for any other address deploy with `-c appOrigins=…` (a path is allowed). With `-c withHosting=true` the stack hosts the app itself and `app-link` uses that address.
 2. **Open the link on the phone** (or paste the code in the app: **Cloud** icon at the top, *Set up the cloud*). Check the details it shows (region, sign-in address, API address), then **Use this setup**. The app refuses any address that is not an AWS address for that region.
 3. **Sign in.** The first time you choose *Create account* on the Cognito page (email and a password of 10 or more characters; the code arrives by email). You return to the app signed in. The app links your sign-in to your cloud identity automatically.
 4. The **Headsets** card lists every headset that has reported. **Watch live** opens the Live screen on its data (a new summary every second while you watch, none of it saved on the phone). **Last 30 days** and **Recent events** come from the hourly aggregator and the event Lambda.
