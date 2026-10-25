@@ -45,7 +45,7 @@
 #define HTM_HAVE_CLOUD 0
 #endif
 
-#define HTM_FW_VERSION "htm-0.8.3"
+#define HTM_FW_VERSION "htm-0.8.4"
 #define HTM_BLE_SERVICE "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
 #define HTM_BLE_RX      "6e400002-b5a3-f393-e0a9-e50e24dcca9e"   // phone -> device (write)
 #define HTM_BLE_TX      "6e400003-b5a3-f393-e0a9-e50e24dcca9e"   // device -> phone (notify)
@@ -68,6 +68,8 @@ WebSocketsServer ws(HTM_WS_PORT);
 bool wsStarted = false;
 NimBLECharacteristic *bleTx = nullptr;
 bool bleOn = false;                  // NimBLE is initialised (it is switched off while the TLS handshake to AWS runs: see the cloud phases)
+bool bleFailed = false;              // NimBLE could not start (RAM): do not try again until the next reset
+bool setupMode = true;               // Bluetooth from the start (no Wi-Fi saved, or BOOT held at reset); otherwise it starts after the cloud is up
 volatile bool bleConnected = false;
 volatile int bleMtu = 23;
 char devName[24] = "HeadTremor";
@@ -221,11 +223,15 @@ bool bleAdvertise() {
 }
 
 void bleBegin() {
-  if (bleOn) return;
+  if (bleOn || bleFailed) return;
   // Only BLE is used: give the classic-Bluetooth controller's RAM back (tens of KB). Must run before BLE starts.
   static bool released = false;
   if (!released) { released = true; esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT); }
-  NimBLEDevice::init(devName);
+  if (!NimBLEDevice::init(devName)) {
+    bleFailed = true;
+    Serial.printf("# BLE could not start (free heap %u, largest block %u). Reset the board to use Bluetooth; the cloud keeps working.\n", (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
+    return;
+  }
   bleOn = true;
   NimBLEDevice::setMTU(247);
   NimBLEServer *srv = NimBLEDevice::createServer();
@@ -256,7 +262,7 @@ void bleSend(const char *line, size_t n) {
 void bleStop() {
   if (!bleOn) return;
   bleOn = false; bleConnected = false; bleTx = nullptr; bleLen = 0; bleMtu = 23;
-  NimBLEDevice::deinit(true);
+  NimBLEDevice::deinit(false);                    // false: keep the controller usable (true gives its RAM back until a reset, and Bluetooth can never start again)
   Serial.printf("# BLE off while the cloud connects (free heap %u)\n", (unsigned)ESP.getFreeHeap());
 }
 
@@ -406,6 +412,8 @@ void task(void *) {
     }
 #if HTM_HAVE_CLOUD
     const bool netOk = timeSet && WiFi.status() == WL_CONNECTED;
+    // Wi-Fi saved but not working (wrong password, network gone): start Bluetooth after 45 s so the phone can fix it
+    if (!setupMode && !bleOn && !bleFailed && cloudPhase == CL_IDLE && !netOk && ms > 45000) bleBegin();
     switch (cloudPhase) {
       case CL_IDLE:
       case CL_WAIT:
@@ -461,7 +469,12 @@ void htmLinkBegin() {
   lnk::ssid = lnk::prefs.getString("ssid", "");
   lnk::pass = lnk::prefs.getString("pass", "");
   lnk::tzMin = lnk::prefs.getInt("tz", 330);
-  lnk::bleBegin();
+#if HTM_HAVE_CLOUD
+  // With Wi-Fi saved the board connects to AWS first (the TLS handshake needs most of the free RAM) and starts Bluetooth after.
+  // Hold BOOT while pressing reset for Bluetooth from the start (setup mode).
+  lnk::setupMode = lnk::ssid.length() == 0 || digitalRead(HTM_OK_BUTTON_PIN) == LOW;
+#endif
+  if (lnk::setupMode) lnk::bleBegin(); else Serial.println("# BLE starts after the cloud connects (hold BOOT while resetting for setup mode)");
   if (lnk::ssid.length()) lnk::connectWifi();
   Serial.printf("# LINK Bluetooth \"%s\", WebSocket port %d, Wi-Fi %s, cloud %s\n", lnk::devName, HTM_WS_PORT, lnk::ssid.length() ? "configured" : "not set (send !wifi)", HTM_HAVE_CLOUD ? "provisioned" : "off");
   xTaskCreatePinnedToCore(lnk::task, "link", 12288, nullptr, 1, nullptr, 0);
