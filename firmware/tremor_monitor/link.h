@@ -45,7 +45,7 @@
 #define HTM_HAVE_CLOUD 0
 #endif
 
-#define HTM_FW_VERSION "htm-0.8.2"
+#define HTM_FW_VERSION "htm-0.8.3"
 #define HTM_BLE_SERVICE "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
 #define HTM_BLE_RX      "6e400002-b5a3-f393-e0a9-e50e24dcca9e"   // phone -> device (write)
 #define HTM_BLE_TX      "6e400003-b5a3-f393-e0a9-e50e24dcca9e"   // device -> phone (notify)
@@ -229,7 +229,7 @@ void bleBegin() {
   bleOn = true;
   NimBLEDevice::setMTU(247);
   NimBLEServer *srv = NimBLEDevice::createServer();
-  srv->setCallbacks(&srvCb);
+  srv->setCallbacks(&srvCb, false);               // srvCb is static: NimBLE must not delete it when the server is torn down (crash: free() outside heap)
   NimBLEService *svc = srv->createService(HTM_BLE_SERVICE);
   bleTx = svc->createCharacteristic(HTM_BLE_TX, NIMBLE_PROPERTY::NOTIFY);
   NimBLECharacteristic *rx = svc->createCharacteristic(HTM_BLE_RX, NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR);

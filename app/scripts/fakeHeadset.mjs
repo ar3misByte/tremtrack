@@ -18,7 +18,7 @@ export const fakeHeadset = ({ lines }) => {
       const cmd = acc.slice(0, n); acc = acc.slice(n + 1);
       window.__cmds = [...(window.__cmds ?? []), cmd];
       if (cmd.startsWith('!orient ')) orient = cmd.slice(8).replace(/ /g, '');
-        if (cmd === '!info') notify(`# INFO fw=htm-0.8.2 name=HeadTremor-TEST wifi=unset ip=0.0.0.0 rssi=0 cloud=off time=no tz=330 ble=1 ws=0 mag=1 orient=${orient}\n`);
+        if (cmd === '!info') notify(`# INFO fw=htm-0.8.3 name=HeadTremor-TEST wifi=unset ip=0.0.0.0 rssi=0 cloud=off time=no tz=330 ble=1 ws=0 mag=1 orient=${orient}\n`);
     }
   };
   setInterval(() => { if (!started) return; do { notify(lines[i++ % lines.length] + '\n'); } while (!lines[(i - 1) % lines.length].startsWith('$')); }, 20);
