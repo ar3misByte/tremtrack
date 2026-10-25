@@ -31,6 +31,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 #include <freertos/task.h>
+#include <esp_bt.h>
 #include <NimBLEDevice.h>
 #include <WebSocketsServer.h>
 #include "frame.h"
@@ -212,6 +213,9 @@ bool bleAdvertise() {
 }
 
 void bleBegin() {
+  // Only BLE is used: give the classic-Bluetooth controller's RAM back (tens of KB). The TLS connection to AWS needs two
+  // ~16 KB buffers in one piece and failed with mbedtls -0x7F00 (out of memory) without this. Must run before BLE starts.
+  esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT);
   NimBLEDevice::init(devName);
   NimBLEDevice::setMTU(247);
   NimBLEServer *srv = NimBLEDevice::createServer();
@@ -315,7 +319,7 @@ void cloudBegin() {
   mqtt = esp_mqtt_client_init(&mc);
   esp_mqtt_client_register_event(mqtt, MQTT_EVENT_ANY, onMqtt, nullptr);
   esp_mqtt_client_start(mqtt);
-  status("CLOUD connecting to %s as %s (free heap %u)", HTM_IOT_ENDPOINT, HTM_THING_NAME, (unsigned)ESP.getFreeHeap());
+  status("CLOUD connecting as %s (free heap %u, largest block %u)", HTM_THING_NAME, (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
 }
 void emit(void *, int kind, const char *json) {
   if (kind == htm::MSG_TELEMETRY) { publish(tTel, json, 0, false); return; }
