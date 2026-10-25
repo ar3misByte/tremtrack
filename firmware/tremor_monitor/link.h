@@ -45,7 +45,7 @@
 #define HTM_HAVE_CLOUD 0
 #endif
 
-#define HTM_FW_VERSION "htm-0.8.1"
+#define HTM_FW_VERSION "htm-0.8.2"
 #define HTM_BLE_SERVICE "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
 #define HTM_BLE_RX      "6e400002-b5a3-f393-e0a9-e50e24dcca9e"   // phone -> device (write)
 #define HTM_BLE_TX      "6e400003-b5a3-f393-e0a9-e50e24dcca9e"   // device -> phone (notify)
@@ -67,6 +67,7 @@ Preferences prefs;
 WebSocketsServer ws(HTM_WS_PORT);
 bool wsStarted = false;
 NimBLECharacteristic *bleTx = nullptr;
+bool bleOn = false;                  // NimBLE is initialised (it is switched off while the TLS handshake to AWS runs: see the cloud phases)
 volatile bool bleConnected = false;
 volatile int bleMtu = 23;
 char devName[24] = "HeadTremor";
@@ -85,6 +86,13 @@ char tTel[160], tEvt[160], tSta[160], tCmd[160], tView[160];
 uint64_t watchUntil = 0;
 uint64_t lastHeartbeat = 0;
 bool bootSent = false;
+// Bluetooth and the TLS handshake do not fit in RAM together, so they take turns:
+//   TRY  Bluetooth off, connecting (30 s)  ->  UP  connected, Bluetooth back on
+//   TRY timed out: stop, Bluetooth back on (the phone can still fix settings), WAIT 60 s, then TRY again
+//   UP and the connection drops: Bluetooth off again and TRY (a reconnect needs the same RAM)
+enum CloudPhase { CL_IDLE, CL_TRY, CL_UP, CL_WAIT };
+CloudPhase cloudPhase = CL_IDLE;
+uint32_t cloudDeadline = 0;
 struct EventSlot { char json[420]; };
 const int kEvq = 16;
 EventSlot evq[kEvq];
@@ -213,10 +221,12 @@ bool bleAdvertise() {
 }
 
 void bleBegin() {
-  // Only BLE is used: give the classic-Bluetooth controller's RAM back (tens of KB). The TLS connection to AWS needs two
-  // ~16 KB buffers in one piece and failed with mbedtls -0x7F00 (out of memory) without this. Must run before BLE starts.
-  esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT);
+  if (bleOn) return;
+  // Only BLE is used: give the classic-Bluetooth controller's RAM back (tens of KB). Must run before BLE starts.
+  static bool released = false;
+  if (!released) { released = true; esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT); }
   NimBLEDevice::init(devName);
+  bleOn = true;
   NimBLEDevice::setMTU(247);
   NimBLEServer *srv = NimBLEDevice::createServer();
   srv->setCallbacks(&srvCb);
@@ -227,7 +237,6 @@ void bleBegin() {
   srv->start();                                   // NimBLE 2.x registers the GATT services here: without it no phone can find them
   bleAdvertise();
 }
-
 // Lines are packed into notifications of at most MTU-3 bytes.
 char bleBuf[244]; size_t bleLen = 0;
 void bleFlush() { if (bleLen && bleTx && bleConnected) bleTx->notify((const uint8_t *)bleBuf, bleLen); bleLen = 0; }
@@ -240,6 +249,15 @@ void bleSend(const char *line, size_t n) {
     memcpy(bleBuf + bleLen, line, k); bleLen += k; line += k; n -= k;
   }
   if (bleLen > cap / 2) bleFlush();
+}
+
+/** Frees NimBLE's RAM (about 40 KB; a connected phone is disconnected). The TLS handshake to AWS needs ~55 KB at once and
+ *  failed with mbedtls -0x7F00 (out of memory) when Bluetooth was up: heap 42 KB, largest block 28 KB. */
+void bleStop() {
+  if (!bleOn) return;
+  bleOn = false; bleConnected = false; bleTx = nullptr; bleLen = 0; bleMtu = 23;
+  NimBLEDevice::deinit(true);
+  Serial.printf("# BLE off while the cloud connects (free heap %u)\n", (unsigned)ESP.getFreeHeap());
 }
 
 // ---------------- WebSocket ----------------
@@ -387,7 +405,28 @@ void task(void *) {
       if (ms - lastWsCheck > 5000) { lastWsCheck = ms; }
     }
 #if HTM_HAVE_CLOUD
-    if (timeSet && !mqtt && WiFi.status() == WL_CONNECTED) cloudBegin();
+    const bool netOk = timeSet && WiFi.status() == WL_CONNECTED;
+    switch (cloudPhase) {
+      case CL_IDLE:
+      case CL_WAIT:
+        if (netOk && (cloudPhase == CL_IDLE || (int32_t)(ms - cloudDeadline) >= 0)) {
+          bleStop();
+          if (!mqtt) cloudBegin(); else esp_mqtt_client_start(mqtt);
+          cloudDeadline = ms + 30000; cloudPhase = CL_TRY;
+        }
+        break;
+      case CL_TRY:
+        if (cloudUp) { cloudPhase = CL_UP; bleBegin(); status("BLE back on (free heap %u)", (unsigned)ESP.getFreeHeap()); }
+        else if ((int32_t)(ms - cloudDeadline) >= 0) {
+          esp_mqtt_client_stop(mqtt); bleBegin();
+          cloudDeadline = ms + 60000; cloudPhase = CL_WAIT;
+          status("CLOUD not reachable: Bluetooth back on, trying again in 60 s");
+        }
+        break;
+      case CL_UP:
+        if (!cloudUp) { bleStop(); cloudDeadline = ms + 30000; cloudPhase = CL_TRY; }
+        break;
+    }
     if (cloudUp) {
       pumpEvents();
       uint64_t now = epochMs();
@@ -395,7 +434,7 @@ void task(void *) {
       if (ms - lastHeartbeat > 900000UL) publishStatus(true);
     }
 #endif
-    if (!bleConnected && ms - lastAdvCheck > 5000) {
+    if (bleOn && !bleConnected && ms - lastAdvCheck > 5000) {
       lastAdvCheck = ms;
       if (!NimBLEDevice::getAdvertising()->isAdvertising()) { status("BLE was not advertising: restarting"); bleAdvertise(); }
     }
