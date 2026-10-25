@@ -215,6 +215,25 @@ PASS: the deployed cloud path works end to end.
 
 If `alertEmail` was confirmed, a "possible fall" email arrives within a minute. That is expected: the script leaves the simulated fall unanswered on purpose.
 
+## 7b. Doctor dashboard
+
+The same app has a doctor screen at `#/doctor`. It is part of the app (the same GitHub Pages site), so only the backend needs the update (`cdk deploy`, which creates the `doctors` group and the routes).
+
+1. **Make someone a doctor.** They sign up in the app first (Cloud → Sign in → Create account), then you run:
+   ```powershell
+   node tools/aws/make-doctor.mjs --email dr@example.com
+   node tools/aws/make-doctor.mjs --list              # who is a doctor
+   node tools/aws/make-doctor.mjs --email dr@example.com --remove
+   ```
+   The doctor signs out and in again (the group is written into the sign-in token) and lands on the dashboard.
+2. **A patient shares.** In the patient's app: **Cloud → Share with my doctor → Make a code**, and read the code to the doctor (works once, 24 hours).
+3. **The doctor adds the patient** on the dashboard (**Add a patient**). The list shows each patient with their 7-day average, trend, falls, headset status and a sparkline, most urgent first; a click opens the details (severity chart, resting heart rate and SpO₂, falls and episodes, synced episode table).
+4. **Stopping:** the patient taps **Stop sharing**, or the doctor taps **Stop seeing this patient**. Either removes access at once.
+
+The same account can be both a patient and a doctor, which is how you can try it alone: make your own account a doctor, make a code on the Cloud screen, and add it on the dashboard.
+
+**Without AWS:** `npm run cloudmock -- --doctor`, then paste the code it prints; the mock sign-in is a doctor and has two weeks of sample history.
+
 ## 8. Read the bill, and tear everything down
 
 - **Usage and credits:**

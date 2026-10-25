@@ -17,7 +17,7 @@ export interface AuthDeps {
   random?: (n: number) => Uint8Array;
 }
 export interface Tokens { idToken: string; accessToken: string; refreshToken: string | null; expiresAt: number }
-export interface Claims { sub: string; email: string | null; exp: number }
+export interface Claims { sub: string; email: string | null; exp: number; groups: string[] }
 
 export const TOKENS_KEY = 'htm.cloud.tokens.v1';
 export const PKCE_KEY = 'htm.cloud.pkce.v1';
@@ -105,7 +105,7 @@ export class Auth {
   claims(): Claims | null {
     const t = this.tokens();
     const c = t && decodeJwt(t.idToken);
-    return c && typeof c.sub === 'string' ? { sub: c.sub, email: typeof c.email === 'string' ? c.email : null, exp: Number(c.exp) } : null;
+    return c && typeof c.sub === 'string' ? { sub: c.sub, email: typeof c.email === 'string' ? c.email : null, exp: Number(c.exp), groups: Array.isArray(c['cognito:groups']) ? (c['cognito:groups'] as unknown[]).filter((g): g is string => typeof g === 'string') : [] } : null;
   }
 
   /** A valid ID token (refreshing it when it is about to expire), or null when the user must sign in again. */

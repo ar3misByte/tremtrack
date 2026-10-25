@@ -53,6 +53,7 @@ npm run test -w infra && npm run cdk:synth           # offline: stack template +
 cd infra && npx cdk bootstrap && npx cdk deploy --outputs-file ../tools/aws/out/outputs.json
 node tools/aws/cloud-e2e.mjs --minutes 3             # throw-away user + device, simulator over MQTT/TLS, API checks, cleanup
 node tools/aws/killswitch.mjs                        # emergency stop: disables the IoT rules
+node tools/aws/make-doctor.mjs --email dr@example.com # let a signed-up user use the doctor dashboard (#/doctor); patients share with a code
 cd infra && npx cdk destroy                          # remove everything
 ```
 
@@ -71,6 +72,7 @@ npm run e2e:history -w app                # replay -> recorder -> IndexedDB -> T
 npm run e2e:report -w app                 # sample history -> Report -> downloaded PDF checked (needs npm run dev)
 npm run e2e:log -w app                    # medication due now -> reminder -> Taken; tags; Insights results (needs npm run dev)
 npm run e2e:device -w app                 # fake Bluetooth headset streaming real firmware output; Wi-Fi setup; compass calibration (needs npm run dev)
+npm run e2e:doctor -w app                 # doctor dashboard: share code, patient list and details, revoking (against cloudmock --doctor; needs npm run dev)
 npm run e2e:cloud -w app                  # setup code, sign-in, live view through the cloud, history, sync, delete, against cloudmock (needs npm run dev)
 npm run hostsim:cloud                     # the firmware's C++ cloud reporter vs the TypeScript reference
 node tools/hostsim/compass-check.mjs      # compass calibration, drift, disturbance, mirrored mounting

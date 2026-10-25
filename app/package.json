@@ -21,6 +21,7 @@
     "e2e:report": "node scripts/e2e-report.mjs",
     "serve:lan": "vite preview --host --port 4173 --strictPort",
     "e2e:cloud": "node --import tsx scripts/e2e-cloud.mjs",
+    "e2e:doctor": "node --import tsx scripts/e2e-doctor.mjs",
     "a11y": "node scripts/a11y.mjs",
     "ui-shots": "node --import tsx scripts/ui-shots.mjs"
   },

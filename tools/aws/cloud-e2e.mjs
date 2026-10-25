@@ -92,6 +92,32 @@ try {
   check(sync.stored === 1, 'PUT /v1/sync');
   const back = await api('GET', '/v1/sync?kind=tags', idToken);
   check(back.tags?.[0]?.id === 'e2e-tag', 'GET /v1/sync');
+
+  // 7. doctor sharing: a throw-away doctor, consent by code, per-patient access, revoking
+  const docEmail = `e2e-doctor+${Date.now()}@example.invalid`;
+  aws(['cognito-idp', 'admin-create-user', '--user-pool-id', out.UserPoolId, '--username', docEmail, '--user-attributes', 'Name=email,Value=' + docEmail, 'Name=email_verified,Value=true', '--message-action', 'SUPPRESS'], o);
+  const prevCleanup = cleanup;
+  cleanup = async () => { await prevCleanup(); if (a.keep !== 'true') { try { aws(['cognito-idp', 'admin-delete-user', '--user-pool-id', out.UserPoolId, '--username', docEmail], o); ok('doctor test user deleted'); } catch { /* already gone */ } } };
+  aws(['cognito-idp', 'admin-set-user-password', '--user-pool-id', out.UserPoolId, '--username', docEmail, '--password', password, '--permanent'], o);
+  aws(['cognito-idp', 'admin-add-user-to-group', '--user-pool-id', out.UserPoolId, '--username', docEmail, '--group-name', 'doctors'], o);
+  const docToken = aws(['cognito-idp', 'admin-initiate-auth', '--user-pool-id', out.UserPoolId, '--client-id', out.UserPoolClientId, '--auth-flow', 'ADMIN_USER_PASSWORD_AUTH', '--auth-parameters', `USERNAME=${docEmail},PASSWORD=${password}`], o).AuthenticationResult.IdToken;
+  check((await api('GET', '/v1/doctor/patients', idToken)).status === 403, 'a patient account cannot use the doctor routes');
+  check((await api('GET', `/v1/doctor/patient?id=${encodeURIComponent(identityId)}`, docToken)).status === 404, 'a doctor sees nothing before the patient shares');
+  const share = await api('POST', '/v1/share', idToken, { name: 'E2E patient' });
+  check(share.status === 200 && /^[A-Z2-9]{10}$/.test(share.code ?? ''), 'POST /v1/share makes a code');
+  check((await api('POST', '/v1/doctor/patients', docToken, { code: 'ZZZZZZZZZZ' })).status === 404, 'a wrong code is refused');
+  const added = await api('POST', '/v1/doctor/patients', docToken, { code: share.code });
+  check(added.status === 200 && added.patientId === identityId, 'the doctor adds the patient with the code');
+  check((await api('POST', '/v1/doctor/patients', docToken, { code: share.code })).status === 404, 'the code works only once');
+  const list = await api('GET', '/v1/doctor/patients', docToken);
+  check(list.patients?.length === 1 && list.patients[0].id === identityId && list.patients[0].devices?.some((d) => d.thing === thing), 'the doctor\'s patient list shows the patient and the headset');
+  const detail = await api('GET', `/v1/doctor/patient?id=${encodeURIComponent(identityId)}&days=7`, docToken);
+  check(detail.status === 200 && Array.isArray(detail.days) && Array.isArray(detail.events) && detail.events.length > 0, `the doctor reads the patient's days and events (${detail.events?.length} events)`);
+  check(!JSON.stringify(detail).includes('"meds"') && !JSON.stringify(detail).includes('"pk"'), 'no medications or internal keys in what the doctor reads');
+  check((await api('GET', '/v1/share', idToken)).doctors?.length === 1, 'the patient sees who has access');
+  const doctorSub = (await api('GET', '/v1/share', idToken)).doctors?.[0]?.doctor;
+  check((await api('DELETE', `/v1/share?doctor=${encodeURIComponent(doctorSub)}`, idToken)).status === 200, 'the patient stops sharing');
+  check((await api('GET', `/v1/doctor/patient?id=${encodeURIComponent(identityId)}`, docToken)).status === 404, 'the doctor loses access at once');
 } catch (e) {
   failures.push(String(e.message ?? e));
   console.error('  ✗ ' + (e.message ?? e));

@@ -12,6 +12,13 @@ const t = synth();
 const json = JSON.stringify(t.toJSON());
 
 describe('TremorStack template', () => {
+  it('doctor access: a "doctors" group, and the share and doctor routes behind the JWT authorizer', () => {
+    t.hasResourceProperties('AWS::Cognito::UserPoolGroup', { GroupName: 'doctors' });
+    for (const key of ['POST /v1/share', 'GET /v1/share', 'DELETE /v1/share', 'POST /v1/doctor/patients', 'GET /v1/doctor/patients', 'DELETE /v1/doctor/patients', 'GET /v1/doctor/patient']) {
+      t.hasResourceProperties('AWS::ApiGatewayV2::Route', { RouteKey: key, AuthorizationType: 'JWT' });
+    }
+  });
+
   it('DynamoDB: provisioned within the always-free 25 RCU / 25 WCU, TTL on, encrypted', () => {
     t.hasResourceProperties('AWS::DynamoDB::Table', {
       ProvisionedThroughput: { ReadCapacityUnits: 10, WriteCapacityUnits: 15 },

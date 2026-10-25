@@ -1,8 +1,8 @@
 // Tiny hash router: #/live, #/trends, ... Works on any static host and offline.
 import { useEffect, useState } from 'react';
 
-export type Route = 'live' | 'trends' | 'log' | 'insights' | 'report' | 'settings' | 'about' | 'cloud';
-const ROUTES: Route[] = ['live', 'trends', 'log', 'insights', 'report', 'settings', 'about', 'cloud'];
+export type Route = 'live' | 'trends' | 'log' | 'insights' | 'report' | 'settings' | 'about' | 'cloud' | 'doctor';
+const ROUTES: Route[] = ['live', 'trends', 'log', 'insights', 'report', 'settings', 'about', 'cloud', 'doctor'];
 
 function current(): Route {
   const r = location.hash.replace(/^#\/?/, '').split('?')[0] as Route;

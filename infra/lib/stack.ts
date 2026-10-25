@@ -155,6 +155,8 @@ export class TremorStack extends Stack {
       accountRecovery: cognito.AccountRecovery.EMAIL_ONLY,
       removalPolicy: RemovalPolicy.DESTROY,
     });
+    // Doctors: only people an admin puts in this group (tools/aws/make-doctor.mjs) can use the /v1/doctor routes, and only for patients who shared with them.
+    new cognito.CfnUserPoolGroup(this, 'DoctorsGroup', { userPoolId: pool.userPoolId, groupName: 'doctors', description: 'Can read the data patients share with them (Head Tremor Monitor doctor dashboard)' });
     const domain = pool.addDomain('Domain', { cognitoDomain: { domainPrefix: Fn.join('-', ['tremor', Aws.ACCOUNT_ID]) } });
     const client = pool.addClient('App', {
       generateSecret: false,
@@ -196,6 +198,8 @@ export class TremorStack extends Stack {
     const routes: [string, apigw.HttpMethod][] = [
       ['/v1/me', apigw.HttpMethod.GET], ['/v1/me', apigw.HttpMethod.DELETE], ['/v1/me/link', apigw.HttpMethod.POST], ['/v1/days', apigw.HttpMethod.GET],
       ['/v1/events', apigw.HttpMethod.GET], ['/v1/telemetry', apigw.HttpMethod.GET], ['/v1/sync', apigw.HttpMethod.PUT], ['/v1/sync', apigw.HttpMethod.GET],
+      ['/v1/share', apigw.HttpMethod.POST], ['/v1/share', apigw.HttpMethod.GET], ['/v1/share', apigw.HttpMethod.DELETE],
+      ['/v1/doctor/patients', apigw.HttpMethod.POST], ['/v1/doctor/patients', apigw.HttpMethod.GET], ['/v1/doctor/patients', apigw.HttpMethod.DELETE], ['/v1/doctor/patient', apigw.HttpMethod.GET],
     ];
     for (const [pth, m] of routes) api.addRoutes({ path: pth, methods: [m], integration: integ, authorizer: auth });
 

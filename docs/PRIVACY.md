@@ -51,6 +51,13 @@ The cloud is **optional**. The app works fully signed out, and nothing leaves th
 | Function logs: counts, errors, identity id and thing name; up to 40 characters of a field that failed validation. The IoT rule error log holds the **full payload** of any message that could not be stored | CloudWatch Logs | **7 days** | Expire automatically |
 | Per-device certificate and private key | Only on your computer (`tools/aws/out/`, git-ignored) and in the headset firmware | Until you delete them | Deprovision with `--delete-local` |
 
+**Sharing with a doctor (optional, off until you do it).** Nobody can see your data unless you give them a one-time code from **Cloud → Share with my doctor**.
+- **Who:** only an account an administrator added to the Cognito group `doctors` can use the doctor routes, and then only for patients who gave that doctor a code. Signing up in the app never makes anyone a doctor.
+- **What the doctor sees:** your name or email as you gave it, headset status, daily scores, episode and fall counts, falls and tremor episodes with their outcome, resting heart rate and SpO₂ estimates, and the episodes you synced. **Not** medication names, doses, dose logs, tags or the live view.
+- **The code:** 10 characters, works once, valid for 24 hours, stored until it is used or expires. Anyone who has it before the doctor does could add themselves as a doctor if they hold a doctor account, so give it to your doctor in person or by phone.
+- **Stopping it:** **Stop sharing** (in the app) removes that doctor's access immediately; deleting your cloud data removes every doctor link. A doctor can also remove a patient from their own list.
+- **Records of access:** the doctor's account id and email are stored with your data so you can see who has access. The API does not keep a log of each read.
+
 **Protection:**
 - **In transit:** TLS for everything. The device uses MQTT over TLS with its own X.509 certificate; the browser uses HTTPS and MQTT over WSS.
 - **At rest:** AWS-managed encryption for DynamoDB and SNS.

@@ -51,7 +51,7 @@ describe('sign-in (hosted UI, PKCE)', () => {
     expect(JSON.parse(storage.m.get(TOKENS_KEY)!)).toMatchObject({ idToken: id, accessToken: 'acc', refreshToken: 'ref', expiresAt: 1_800_003_600_000 });
     expect(session.m.has(PKCE_KEY)).toBe(false);
     expect(auth.isSignedIn()).toBe(true);
-    expect(auth.claims()).toEqual({ sub: 's-1', email: 'me@example.com', exp: 1_800_003_600 });
+    expect(auth.claims()).toEqual({ sub: 's-1', email: 'me@example.com', exp: 1_800_003_600, groups: [] });
     expect(await auth.completeLogin(`https://app.example/?code=abc&state=${state}`)).toMatchObject({ ok: false });   // the verifier is single use
   });
 

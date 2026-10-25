@@ -270,3 +270,7 @@ p.fine + .btn-row, dl.kv + .field, .kv + p.fine { margin-top: var(--s-3); }
 .notice.stack { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s-2); }
 @media (min-width: 640px) { .page:not(.wide) { max-width: 40rem; } }
 .page.wide > .col { display: grid; gap: var(--s-4); min-width: 0; }
+
+/* Doctor dashboard: the patient list beside the open patient on wide screens, stacked on a phone */
+.doc-grid { display: grid; gap: var(--s-4); grid-template-columns: minmax(0, 1fr); align-items: start; }
+@media (min-width: 900px) { .doc-grid { grid-template-columns: minmax(280px, 360px) minmax(0, 1fr); gap: var(--s-6); } }

@@ -3,29 +3,51 @@ import DailyChart from '../components/charts/DailyChart';
 import { cloud, useCloud } from '../cloud/client';
 import { cloudDaySummaries } from '../cloud/days';
 import { parseSetup, type CloudConfig } from '../cloud/config';
+import { formatCode } from '../cloud/doctorView';
 import type { CloudEventRow } from '../cloud/aws';
+import { eventText } from '../cloud/eventText';
 import { useLive } from '../device/live';
-import { axesLong, fmtDuration, fmtScore } from '../logic/labels';
-import type { Axis } from '../logic/csv';
 
 const ago = (ms: number) => {
   const s = Math.max(0, (Date.now() - ms) / 1000);
   return s < 90 ? 'just now' : s < 5400 ? `${Math.round(s / 60)} min ago` : s < 129_600 ? `${Math.round(s / 3600)} h ago` : `${Math.round(s / 86_400)} days ago`;
 };
 
-function eventText(e: CloudEventRow): string {
-  if (e.type === 'episode' && e.ep) {
-    const axes = e.ep.axes as Axis[];
-    return `Tremor episode, ${fmtDuration(e.ep.durationS)}: ${axesLong(axes)}${e.ep.freqHz > 0 ? `, about ${e.ep.freqHz.toFixed(1)} Hz` : ''}. Score ${fmtScore(e.ep.score)} of 10.`;
-  }
-  if (e.type === 'fall' && e.fall) {
-    const how = { pending: 'waiting for an answer', cancelled: 'the wearer said they are OK', confirmed: 'the wearer asked for help', 'no-response': 'nobody answered the countdown' }[e.fall.outcome] ?? e.fall.outcome;
-    return `Possible fall (peak ${e.fall.peakG.toFixed(1)} g): ${how}.`;
-  }
-  if (e.type === 'sensitivity') return `Sensitivity set to ${e.level}.`;
-  if (e.type === 'boot') return 'Headset started.';
-  if (e.type === 'tremor_start') return 'Tremor started.';
-  return e.type;
+/** Patient side of the doctor dashboard: the patient decides who sees their data, with a one-time code, and can take it back. */
+function ShareWithDoctor() {
+  const c = useCloud();
+  const [name, setName] = useState('');
+  const left = c.shareCode ? Math.max(0, c.shareCode.expiresAt - Date.now()) : 0;
+  return (
+    <section className="card" aria-label="Share with my doctor">
+      <div className="card-title"><span>Share with my doctor</span></div>
+      <p className="fine">
+        A doctor with a doctor account can see your daily scores, falls, tremor episodes and resting heart rate and SpO₂ estimates, only after you give them a code.
+        They cannot see your medications or notes. You can stop sharing at any time.
+      </p>
+      {c.shareCode && left > 0 && (
+        <div className="notice" role="status">
+          <span>Code for your doctor: <b style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-lg)', letterSpacing: '0.1em' }}>{formatCode(c.shareCode.code)}</b></span>
+          <span className="fine" style={{ display: 'block' }}>Works once. Valid for about {Math.max(1, Math.round(left / 3_600_000))} h. Give it to your doctor in person or by phone, not in a public place.</span>
+        </div>
+      )}
+      <form className="field-row" onSubmit={(e) => { e.preventDefault(); void cloud.makeShareCode(name.trim()); }}>
+        <label htmlFor="share-name" className="sr-only">Name your doctor will see (optional)</label>
+        <input id="share-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Name your doctor will see (optional)" maxLength={60} style={{ flex: 1, minWidth: 0 }} />
+        <button className="btn sm" type="submit" disabled={!!c.busy}>{c.shareCode && left > 0 ? 'New code' : 'Make a code'}</button>
+      </form>
+      <h2 className="fine" style={{ margin: 'var(--s-3) 0 var(--s-1)' }}>Who can see your data</h2>
+      {c.shares.length === 0 && <p className="fine">Nobody.</p>}
+      <ul className="plain">
+        {c.shares.map((s) => (
+          <li key={s.doctor} style={{ display: 'flex', justifyContent: 'space-between', gap: 'var(--s-3)', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--line)' }}>
+            <span>{s.email ?? 'A doctor'}<br /><span className="fine">since {new Date(s.since).toLocaleDateString()}</span></span>
+            <button className="btn sm" disabled={!!c.busy} onClick={() => void cloud.revokeShare(s.doctor)}>Stop sharing</button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
 }
 
 function Setup() {
@@ -108,6 +130,7 @@ export default function Cloud() {
             <p className="fine">{c.email ?? 'Signed in'} · {c.config.region}{c.loadedAt ? ` · updated ${ago(c.loadedAt)}` : ''}</p>
             <div className="btn-row">
               <button className="btn sm" disabled={!!c.busy} onClick={() => void cloud.refresh()}>{c.busy && /Loading/.test(c.busy) ? 'Loading…' : 'Refresh'}</button>
+              {c.isDoctor && <a className="btn sm primary" href="#/doctor">Doctor dashboard</a>}
               <button className="btn sm" onClick={() => void cloud.signOut()}>Sign out</button>
             </div>
           </section>
@@ -177,6 +200,8 @@ export default function Cloud() {
               </p>
             )}
           </section>
+
+          <ShareWithDoctor />
 
           <section className="card" aria-label="Delete cloud data">
             <div className="card-title"><span>Delete my cloud data</span></div>

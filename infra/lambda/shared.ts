@@ -16,6 +16,8 @@ export const K = {
   day: (d: string) => `DAY#${d}`,
   device: (thing: string) => `D#${thing}`,
   notify: (kind: string) => `N#${kind}`,
+  share: (code: string) => `SHARE#${code}`,           // a one-time code a patient gives their doctor (sk 'CODE')
+  doctor: (sub: string) => `DOC#${sub}`,              // a doctor's patients: sk PT#<owner>; the patient's side is U#owner / ACC#<doctor sub>
 };
 
 /** Kinds of records the app syncs (PUT /v1/sync), with their sort-key builders. */

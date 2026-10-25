@@ -3,7 +3,8 @@
 import { create } from 'zustand';
 import { live } from '../device/live';
 import type { DeviceEvent, Status } from '../logic/protocol';
-import { Api, ApiError, getCredentials, getIdentityId, type CloudEventRow, type DayRow, type DeviceRow } from './aws';
+import { Api, ApiError, getCredentials, getIdentityId, type CloudEventRow, type DayRow, type DeviceRow, type PatientDetail, type PatientRow, type ShareRow } from './aws';
+import { overview, triage, type PatientOverview } from './doctorView';
 import { Auth } from './auth';
 import { CONFIG_KEY, clearConfig, loadConfig, saveConfig, safeStorage, type CloudConfig } from './config';
 import { CloudSource } from './liveSource';
@@ -13,9 +14,24 @@ import type { Credentials } from './sigv4';
 export interface RemoteStatus { online: boolean; ts: number; fw?: string; rate?: number }
 export interface CloudAlert { thing: string; kind: 'fall'; text: string; at: number }
 
+export interface DoctorState {
+  patients: PatientOverview[];               // most urgent first
+  selected: string | null;
+  detail: PatientDetail | null;
+  loadedAt: number;
+  busy: string | null;
+  error: string | null;
+  notice: string | null;
+}
+const noDoctor = (): DoctorState => ({ patients: [], selected: null, detail: null, loadedAt: 0, busy: null, error: null, notice: null });
+
 export interface CloudState {
   config: CloudConfig | null;
   signedIn: boolean;
+  isDoctor: boolean;                         // the sign-in token carries the "doctors" group
+  shares: ShareRow[];                        // doctors this user has given access to
+  shareCode: { code: string; expiresAt: number } | null;
+  doctor: DoctorState;
   email: string | null;
   identityId: string | null;
   devices: DeviceRow[];
@@ -37,7 +53,7 @@ const readPrefs = (): { at: number; includeMeds: boolean } => { try { const v = 
 const writePrefs = (p: { at: number; includeMeds: boolean }) => { try { safeStorage()?.setItem(PREFS_KEY, JSON.stringify(p)); } catch { /* ignore */ } };
 
 export const useCloud = create<CloudState>(() => ({
-  config: null, signedIn: false, email: null, identityId: null, devices: [], days: [], events: [], remote: {}, liveEvents: [], alert: null,
+  config: null, signedIn: false, isDoctor: false, shares: [], shareCode: null, doctor: noDoctor(), email: null, identityId: null, devices: [], days: [], events: [], remote: {}, liveEvents: [], alert: null,
   watching: null, busy: null, error: null, notice: null, sync: { ...readPrefs(), last: null }, loadedAt: 0,
 }));
 const set = useCloud.setState;
@@ -62,7 +78,8 @@ class CloudClient {
       const r = await this.auth!.completeLogin(location.href);
       history.replaceState(null, '', location.pathname);          // take ?code=… out of the address bar
       if (r && !r.ok) set({ error: r.error });
-      location.hash = '#/cloud';                                  // a real change, so the router moves to the Cloud screen
+      this.syncAuthState();
+      location.hash = get().isDoctor ? '#/doctor' : '#/cloud';    // a real change, so the router moves on; doctors land on their dashboard
     }
     this.syncAuthState();
     if (this.auth!.isSignedIn()) await this.refresh();
@@ -78,7 +95,7 @@ class CloudClient {
 
   private syncAuthState() {
     const c = this.auth?.claims() ?? null;
-    set({ signedIn: !!this.auth?.isSignedIn(), email: c?.email ?? null });
+    set({ signedIn: !!this.auth?.isSignedIn(), email: c?.email ?? null, isDoctor: !!c?.groups.includes('doctors') });
   }
 
   setup(cfg: CloudConfig) { saveConfig(cfg); this.use(cfg); set({ notice: 'Cloud setup saved. Sign in to continue.' }); }
@@ -88,7 +105,7 @@ class CloudClient {
     this.auth?.signOut();
     clearConfig();
     this.auth = null; this.api = null; this.creds = null;
-    set({ config: null, signedIn: false, email: null, identityId: null, devices: [], days: [], events: [], remote: {}, liveEvents: [], alert: null, error: null, notice: null });
+    set({ config: null, signedIn: false, isDoctor: false, shares: [], shareCode: null, doctor: noDoctor(), email: null, identityId: null, devices: [], days: [], events: [], remote: {}, liveEvents: [], alert: null, error: null, notice: null });
   }
 
   async signIn() {
@@ -101,7 +118,7 @@ class CloudClient {
     await this.stopWatching();
     this.auth?.signOut();
     this.creds = null;
-    set({ signedIn: false, email: null, identityId: null, devices: [], days: [], events: [], remote: {}, liveEvents: [], alert: null, notice: 'Signed out on this device.' });
+    set({ signedIn: false, isDoctor: false, shares: [], shareCode: null, doctor: noDoctor(), email: null, identityId: null, devices: [], days: [], events: [], remote: {}, liveEvents: [], alert: null, notice: 'Signed out on this device.' });
   }
 
   private async identity(): Promise<string> {
@@ -123,8 +140,8 @@ class CloudClient {
       if (!me.identityId) { await this.api.link(await this.identity()); me = await this.api.me(); }
       set({ identityId: me.identityId, email: me.email ?? get().email, devices: me.devices });
       const now = Date.now();
-      const [days, events] = await Promise.all([this.api.days(dayStr(now - 29 * 86_400_000), dayStr(now)), this.api.events(now - 14 * 86_400_000, now)]);
-      set({ days: days.days.sort((a, b) => a.day.localeCompare(b.day)), events: events.events.sort((a, b) => b.ts - a.ts), loadedAt: now });
+      const [days, events, shares] = await Promise.all([this.api.days(dayStr(now - 29 * 86_400_000), dayStr(now)), this.api.events(now - 14 * 86_400_000, now), this.api.shares().catch(() => ({ doctors: [] as ShareRow[] }))]);
+      set({ shares: shares.doctors, days: days.days.sort((a, b) => a.day.localeCompare(b.day)), events: events.events.sort((a, b) => b.ts - a.ts), loadedAt: now });
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) { this.auth.signOut(); this.syncAuthState(); set({ error: 'Your sign-in expired. Sign in again.' }); }
       else set({ error: 'Could not load from the cloud: ' + msg(e) });
@@ -166,6 +183,76 @@ class CloudClient {
   async stopWatching() {
     if (live.sourceKind === 'cloud') await live.disconnect();
     set({ watching: null });
+  }
+
+  // ---------- sharing with a doctor (patient side) ----------
+  async makeShareCode(name: string) {
+    if (!this.api) return;
+    set({ busy: 'Making a code…', error: null });
+    try { set({ shareCode: await this.api.makeShareCode(name) }); }
+    catch (e) { set({ error: 'Could not make a code: ' + msg(e) }); }
+    finally { set({ busy: null }); }
+  }
+
+  async revokeShare(doctor: string) {
+    if (!this.api) return;
+    set({ busy: 'Removing access…', error: null });
+    try { await this.api.revokeShare(doctor); set((s) => ({ shares: s.shares.filter((x) => x.doctor !== doctor), notice: 'That doctor can no longer see your data.' })); }
+    catch (e) { set({ error: 'Could not remove access: ' + msg(e) }); }
+    finally { set({ busy: null }); }
+  }
+
+  // ---------- doctor dashboard ----------
+  private doctorSet(p: Partial<DoctorState>) { set((s) => ({ doctor: { ...s.doctor, ...p } })); }
+  private doctorFail(e: unknown, what: string) {
+    if (e instanceof ApiError && e.status === 401) { this.auth?.signOut(); this.syncAuthState(); this.doctorSet({ error: 'Your sign-in expired. Sign in again.' }); }
+    else if (e instanceof ApiError && e.status === 403) this.doctorSet({ error: 'This account is not a doctor account. An administrator adds doctors (tools/aws/make-doctor.mjs); sign out and in again afterwards.' });
+    else this.doctorSet({ error: `${what}: ${msg(e)}` });
+  }
+
+  /** Reloads the list of patients who shared with this doctor (and keeps the open patient up to date). */
+  async doctorRefresh() {
+    if (!this.api) return;
+    this.doctorSet({ busy: 'Loading patients…', error: null });
+    try {
+      const r = await this.api.patients();
+      const now = Date.now();
+      this.doctorSet({ patients: triage(r.patients.map((p: PatientRow) => overview(p, now))), loadedAt: now });
+      const sel = get().doctor.selected;
+      if (sel && r.patients.some((p) => p.id === sel)) await this.doctorOpen(sel);
+      else if (sel) this.doctorSet({ selected: null, detail: null });
+    } catch (e) { this.doctorFail(e, 'Could not load patients'); }
+    finally { this.doctorSet({ busy: null }); }
+  }
+
+  async doctorOpen(id: string, days = 30) {
+    if (!this.api) return;
+    this.doctorSet({ selected: id, busy: 'Loading patient…', error: null });
+    try { const detail = await this.api.patient(id, days); if (get().doctor.selected === id) this.doctorSet({ detail }); }
+    catch (e) { this.doctorFail(e, 'Could not load this patient'); }
+    finally { this.doctorSet({ busy: null }); }
+  }
+
+  closePatient() { this.doctorSet({ selected: null, detail: null }); }
+
+  async doctorAdd(code: string): Promise<boolean> {
+    if (!this.api) return false;
+    this.doctorSet({ busy: 'Adding patient…', error: null, notice: null });
+    try {
+      const r = await this.api.addPatient(code);
+      this.doctorSet({ notice: `Added ${r.label}.` });
+      await this.doctorRefresh();
+      return true;
+    } catch (e) { this.doctorFail(e, 'Could not add the patient'); return false; }
+    finally { this.doctorSet({ busy: null }); }
+  }
+
+  async doctorRemove(id: string) {
+    if (!this.api) return;
+    this.doctorSet({ busy: 'Removing…', error: null });
+    try { await this.api.removePatient(id); this.doctorSet({ selected: null, detail: null, notice: 'Patient removed from your list.' }); await this.doctorRefresh(); }
+    catch (e) { this.doctorFail(e, 'Could not remove the patient'); }
+    finally { this.doctorSet({ busy: null }); }
   }
 
   async syncNow(includeMeds: boolean) {

@@ -6,7 +6,7 @@
 //     devices publish (telemetry / status -> table, events -> the real events Lambda, hourly aggregator)
 // What it does not check: signatures (SigV4, JWT) and IoT policies; those are verified by unit tests and by AWS.
 //
-//   npx tsx tools/devsim/src/cloudmock.ts [--demo-history] [--port 8801] [--mqtt-port 8802] [--tcp-port 8803]
+//   npx tsx tools/devsim/src/cloudmock.ts [--demo-history] [--doctor] [--port 8801] [--mqtt-port 8802] [--tcp-port 8803]
 // prints the setup link for the app and writes tools/devsim/out/mock-device.json for `npm run sim -- --mqtt`.
 import { createHash, randomBytes } from 'node:crypto';
 import { createServer as createHttp, type IncomingMessage, type ServerResponse } from 'node:http';
@@ -23,7 +23,7 @@ import { FakeDdb, rules } from '../../../infra/test/fakeDdb.ts';
 import { encodeConfig } from '../../../app/src/cloud/config.ts';
 import { parseTopic, validateEvent, validateStatus, validateTelemetry } from '../../../app/src/logic/protocol.ts';
 
-export interface MockOptions { port?: number; mqttPort?: number; tcpPort?: number; demoHistory?: boolean; log?: (m: string) => void; email?: string }
+export interface MockOptions { port?: number; mqttPort?: number; tcpPort?: number; demoHistory?: boolean; log?: (m: string) => void; email?: string; doctor?: boolean }
 export interface MockCloud {
   config: Record<string, string>;
   identityId: string;
@@ -91,7 +91,7 @@ export async function startCloudMock(o: MockOptions = {}): Promise<MockCloud> {
   const send = (res: ServerResponse, status: number, data: unknown, extra: Record<string, string> = {}) => { res.writeHead(status, { 'content-type': 'application/json', ...cors, ...extra }); res.end(typeof data === 'string' ? data : JSON.stringify(data)); };
   const tokens = () => {
     const now = Math.floor(Date.now() / 1000);
-    return { id_token: jwt({ sub: SUB, email, 'cognito:username': SUB, iat: now, exp: now + 3600, aud: 'mock' }), access_token: jwt({ sub: SUB, iat: now, exp: now + 3600 }), expires_in: 3600, token_type: 'Bearer' };
+    return { id_token: jwt({ sub: SUB, email, 'cognito:username': SUB, ...(o.doctor ? { 'cognito:groups': ['doctors'] } : {}), iat: now, exp: now + 3600, aud: 'mock' }), access_token: jwt({ sub: SUB, iat: now, exp: now + 3600 }), expires_in: 3600, token_type: 'Bearer' };
   };
 
   const server = createHttp(async (req, res) => {
@@ -180,7 +180,7 @@ async function seedHistory(put: (i: Record<string, unknown>) => Promise<unknown>
 if (import.meta.url === `file://${process.argv[1]?.replace(/\\/g, '/').replace(/^([A-Za-z]):/, '/$1:')}` || process.argv[1]?.endsWith('cloudmock.ts')) {
   const a = process.argv.slice(2);
   const num = (k: string, d: number) => (a.includes(k) ? Number(a[a.indexOf(k) + 1]) : d);
-  const m = await startCloudMock({ port: num('--port', 8801), mqttPort: num('--mqtt-port', 8802), tcpPort: num('--tcp-port', 8803), demoHistory: a.includes('--demo-history'), log: (s) => process.stderr.write(`[cloudmock] ${s}\n`) });
+  const m = await startCloudMock({ port: num('--port', 8801), mqttPort: num('--mqtt-port', 8802), tcpPort: num('--tcp-port', 8803), demoHistory: a.includes('--demo-history'), doctor: a.includes('--doctor'), log: (s) => process.stderr.write(`[cloudmock] ${s}\n`) });
   const out = join(dirname(fileURLToPath(import.meta.url)), '../out');
   mkdirSync(out, { recursive: true });
   const device = { endpoint: 'mock', thing: 'htm-mock', owner: m.owner, cert: '', key: '', ca: '', url: `mqtt://127.0.0.1:${m.ports.tcp}` };

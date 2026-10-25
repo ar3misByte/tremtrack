@@ -54,9 +54,26 @@ export class Api {
   telemetry(thing: string, from: number, to: number) { return this.request<{ telemetry: Record<string, unknown>[] }>('GET', `/v1/telemetry?thing=${encodeURIComponent(thing)}&from=${from}&to=${to}`); }
   syncPut(records: Record<string, unknown[]>) { return this.request<{ stored: number }>('PUT', '/v1/sync', records); }
   syncGet<K extends string>(kind: K, since = 0) { return this.request<Record<K, Record<string, unknown>[]>>('GET', `/v1/sync?kind=${kind}&since=${since}`); }
+  // sharing with a doctor (patient side)
+  makeShareCode(name: string) { return this.request<{ code: string; expiresAt: number }>('POST', '/v1/share', { name }); }
+  shares() { return this.request<{ doctors: ShareRow[] }>('GET', '/v1/share'); }
+  revokeShare(doctor: string) { return this.request<{ removed: boolean }>('DELETE', `/v1/share?doctor=${encodeURIComponent(doctor)}`); }
+  // doctor side (needs the "doctors" group; each patient needs the patient's consent)
+  addPatient(code: string) { return this.request<{ patientId: string; label: string }>('POST', '/v1/doctor/patients', { code }); }
+  patients() { return this.request<{ patients: PatientRow[] }>('GET', '/v1/doctor/patients'); }
+  patient(id: string, days = 30) { return this.request<PatientDetail>('GET', `/v1/doctor/patient?id=${encodeURIComponent(id)}&days=${days}`); }
+  removePatient(id: string) { return this.request<{ removed: boolean }>('DELETE', `/v1/doctor/patients?id=${encodeURIComponent(id)}`); }
   deleteMe(account: boolean) { return this.request<{ deleted: number; account: boolean }>('DELETE', `/v1/me${account ? '?account=true' : ''}`); }
 }
 
 export interface DeviceRow { thing?: string; online?: boolean; lastSeen?: number; fw?: string; tzMin?: number; rate?: number; sk?: string }
 export interface DayRow { day: string; score?: number | null; episodes?: number; falls?: number; monitoredS?: number; tremorS?: number; restingBpm?: number | null; restingSpo2?: number | null; maxEpisodeScore?: number | null }
 export interface CloudEventRow { ts: number; type: string; thing?: string; ep?: { start: number; end: number; durationS: number; axes: number[]; pattern: string; ampDps: number; freqHz: number; score: number; bpm: number | null }; fall?: { t: number; path: string; peakG: number; outcome: string }; level?: number; ax?: number; f?: number }
+
+export interface ShareRow { doctor: string; email: string | null; since: number }
+export interface PatientDay { day: string; score: number | null; episodes: number; falls: number; monitoredS: number; restingBpm: number | null; restingSpo2: number | null }
+export interface PatientRow { id: string; label: string; since: number; devices: DeviceRow[]; days: PatientDay[]; falls7: number; lastFallTs: number | null }
+/** An episode the patient's app uploaded (Sync): the same fields as the app's own Episode record. */
+export interface SyncedEpisode { id: string; start: number; end?: number; durationS: number; freqHz?: number; ampDps?: number; peakAmpDps?: number; score?: number; axes?: number[]; pattern?: string; bpm?: number | null; walkingFrac?: number }
+export interface SyncedVital { id: string; t: number; bpm: number; spo2: number | null; quality?: string }
+export interface PatientDetail { id: string; label: string; since: number; devices: DeviceRow[]; days: DayRow[]; events: CloudEventRow[]; episodes: SyncedEpisode[]; vitals: SyncedVital[] }

@@ -16,6 +16,7 @@ const Log = lazy(() => import('./screens/Log'));
 const Insights = lazy(() => import('./screens/Insights'));
 const Report = lazy(() => import('./screens/Report'));
 const Cloud = lazy(() => import('./screens/Cloud'));
+const Doctor = lazy(() => import('./screens/Doctor'));
 
 function ConnPill({ onClick }: { onClick: () => void }) {
   const s = useLive();
@@ -76,6 +77,7 @@ export default function App() {
         {route === 'settings' && <Settings />}
         {route === 'about' && <About />}
         {route === 'cloud' && <Cloud />}
+        {route === 'doctor' && <Doctor />}
         </Suspense>
         <p className="disclaimer">Prototype for demonstration. Not a medical device. <a href="#/about">Limits</a></p>
       </main>
