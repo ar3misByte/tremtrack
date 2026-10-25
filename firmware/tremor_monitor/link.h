@@ -259,6 +259,12 @@ void onMqtt(void *, esp_event_base_t, int32_t id, void *data) {
   } else if (id == MQTT_EVENT_DISCONNECTED) {
     cloudUp = false;
     status("CLOUD disconnected");
+  } else if (id == MQTT_EVENT_ERROR && e->error_handle) {
+    // why a connection failed: TLS/socket error codes (-0x2700 = certificate verify failed, 118/113 = no route, 104 = reset) or the broker's refusal code
+    const esp_mqtt_error_codes_t *er = e->error_handle;
+    if (er->error_type == MQTT_ERROR_TYPE_TCP_TRANSPORT) status("CLOUD error tls=0x%x stack=-0x%x errno=%d", er->esp_tls_last_esp_err, -er->esp_tls_stack_err, er->esp_transport_sock_errno);
+    else if (er->error_type == MQTT_ERROR_TYPE_CONNECTION_REFUSED) status("CLOUD refused by the broker, code %d", (int)er->connect_return_code);
+    else status("CLOUD error type %d", (int)er->error_type);
   } else if (id == MQTT_EVENT_DATA && e->data_len > 0 && e->data_len < 200 && e->topic_len > 0) {
     char body[200]; memcpy(body, e->data, e->data_len); body[e->data_len] = 0;
     if (e->topic_len >= 4 && !strncmp(e->topic + e->topic_len - 4, "/cmd", 4)) {
@@ -296,6 +302,7 @@ void cloudBegin() {
   mqtt = esp_mqtt_client_init(&mc);
   esp_mqtt_client_register_event(mqtt, MQTT_EVENT_ANY, onMqtt, nullptr);
   esp_mqtt_client_start(mqtt);
+  status("CLOUD connecting to %s as %s (free heap %u)", HTM_IOT_ENDPOINT, HTM_THING_NAME, (unsigned)ESP.getFreeHeap());
 }
 void emit(void *, int kind, const char *json) {
   if (kind == htm::MSG_TELEMETRY) { publish(tTel, json, 0, false); return; }
