@@ -81,7 +81,7 @@ try {
 
   // 5. aggregator (including the hour in progress)
   const fns = aws(['cloudformation', 'describe-stack-resources', '--stack-name', 'TremorStack'], o).StackResources.filter((r) => r.ResourceType === 'AWS::Lambda::Function' && r.LogicalResourceId.startsWith('AggregateFn'));
-  aws(['lambda', 'invoke', '--function-name', fns[0].PhysicalResourceId, '--cli-binary-format', 'raw-in-base64-out', '--payload', '{"includeCurrentHour":true}', '-'], o);
+  aws(['lambda', 'invoke', '--function-name', fns[0].PhysicalResourceId, '--cli-binary-format', 'raw-in-base64-out', '--payload', '{"includeCurrentHour":true}', process.platform === 'win32' ? 'NUL' : '/dev/null'], o);
   const today = new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10);
   const days = await api('GET', `/v1/days?from=${today}&to=${today}`, idToken);
   const d = days.days?.[0];
