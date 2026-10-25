@@ -25,7 +25,7 @@ describe('TremorStack template', () => {
     const byName = Object.fromEntries(Object.values(rules).map((r: any) => [r.Properties.RuleName, r.Properties.TopicRulePayload]));
     expect(Object.keys(byName).sort()).toEqual(['tremor_events', 'tremor_registry', 'tremor_status', 'tremor_telemetry']);
     const tel = byName.tremor_telemetry.Sql as string;
-    for (const s of ["FROM 'tremor/v1/+/+/telemetry'", 'v = 1', 'isNumber(seq)', 'isNumber(ts)', '(tr = 0 OR tr = 1)', `+ ${TELEMETRY_TTL_S} AS ttl`, "concat('U#', topic(3)) AS pk", "concat('T#', topic(4), '#', cast(ts AS String)) AS sk"]) expect(tel).toContain(s);
+    for (const s of ["FROM 'tremor/v1/+/+/telemetry'", 'v = 1', 'seq >= 0', 'ts > 1704067200000', '(tr = 0 OR tr = 1)', `+ ${TELEMETRY_TTL_S} AS ttl`, "concat('U#', topic(3)) AS pk", "concat('T#', topic(4), '#', cast(ts AS String)) AS sk"]) expect(tel).toContain(s);
     expect(byName.tremor_events.Actions[0].Lambda).toBeDefined();
     for (const p of Object.values(byName) as any[]) expect(p.ErrorAction.CloudwatchLogs).toBeDefined();
   });

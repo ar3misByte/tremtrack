@@ -116,13 +116,13 @@ export class TremorStack extends Stack {
     });
     rule('tremor_telemetry',
       `SELECT *, concat('U#', topic(3)) AS pk, concat('T#', topic(4), '#', cast(ts AS String)) AS sk, topic(4) AS thing, floor(timestamp() / 1000) + ${TELEMETRY_TTL_S} AS ttl ` +
-      `FROM 'tremor/v1/+/+/telemetry' WHERE v = 1 AND isNumber(seq) AND isNumber(ts) AND ts > 1704067200000 AND ts < 4102444800000 AND isNumber(per) AND (tr = 0 OR tr = 1)`,
+      `FROM 'tremor/v1/+/+/telemetry' WHERE v = 1 AND seq >= 0 AND ts > 1704067200000 AND ts < 4102444800000 AND per >= 0 AND (tr = 0 OR tr = 1)`,
       [ddbAction]);
     rule('tremor_status',
-      `SELECT *, concat('U#', topic(3)) AS pk, concat('D#', topic(4)) AS sk, topic(4) AS thing, timestamp() AS lastSeen FROM 'tremor/v1/+/+/status' WHERE v = 1 AND isBoolean(online)`,
+      `SELECT *, concat('U#', topic(3)) AS pk, concat('D#', topic(4)) AS sk, topic(4) AS thing, timestamp() AS lastSeen FROM 'tremor/v1/+/+/status' WHERE v = 1 AND (online = true OR online = false)`,
       [ddbAction]);
     rule('tremor_registry',
-      `SELECT 'DEVICES' AS pk, topic(4) AS sk, topic(3) AS owner, timestamp() AS lastSeen, tzMin, online FROM 'tremor/v1/+/+/status' WHERE v = 1 AND isBoolean(online)`,
+      `SELECT 'DEVICES' AS pk, topic(4) AS sk, topic(3) AS owner, timestamp() AS lastSeen, tzMin, online FROM 'tremor/v1/+/+/status' WHERE v = 1 AND (online = true OR online = false)`,
       [ddbAction]);
     const eventsRule = rule('tremor_events', `SELECT *, topic(3) AS owner, topic(4) AS thing FROM 'tremor/v1/+/+/event' WHERE v = 1`, [{ lambda: { functionArn: eventsFn.functionArn } }]);
     eventsFn.addPermission('IotInvoke', { principal: new iam.ServicePrincipal('iot.amazonaws.com'), sourceArn: eventsRule.attrArn, sourceAccount: Aws.ACCOUNT_ID });
