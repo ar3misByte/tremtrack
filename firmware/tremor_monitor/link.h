@@ -45,7 +45,7 @@
 #define HTM_HAVE_CLOUD 0
 #endif
 
-#define HTM_FW_VERSION "htm-0.8.0"
+#define HTM_FW_VERSION "htm-0.8.1"
 #define HTM_BLE_SERVICE "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
 #define HTM_BLE_RX      "6e400002-b5a3-f393-e0a9-e50e24dcca9e"   // phone -> device (write)
 #define HTM_BLE_TX      "6e400003-b5a3-f393-e0a9-e50e24dcca9e"   // device -> phone (notify)
@@ -279,7 +279,7 @@ void onMqtt(void *, esp_event_base_t, int32_t id, void *data) {
   } else if (id == MQTT_EVENT_ERROR && e->error_handle) {
     // why a connection failed: TLS/socket error codes (-0x2700 = certificate verify failed, 118/113 = no route, 104 = reset) or the broker's refusal code
     const esp_mqtt_error_codes_t *er = e->error_handle;
-    if (er->error_type == MQTT_ERROR_TYPE_TCP_TRANSPORT) status("CLOUD error tls=0x%x stack=-0x%x errno=%d", er->esp_tls_last_esp_err, -er->esp_tls_stack_err, er->esp_transport_sock_errno);
+    if (er->error_type == MQTT_ERROR_TYPE_TCP_TRANSPORT) status("CLOUD error tls=0x%x stack=-0x%x errno=%d fw=%s heap=%u block=%u ble=%d", er->esp_tls_last_esp_err, -er->esp_tls_stack_err, er->esp_transport_sock_errno, HTM_FW_VERSION, (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap(), (int)bleConnected);
     else if (er->error_type == MQTT_ERROR_TYPE_CONNECTION_REFUSED) status("CLOUD refused by the broker, code %d", (int)er->connect_return_code);
     else status("CLOUD error type %d", (int)er->error_type);
   } else if (id == MQTT_EVENT_DATA && e->data_len > 0 && e->data_len < 200 && e->topic_len > 0) {
