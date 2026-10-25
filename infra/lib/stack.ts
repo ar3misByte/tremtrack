@@ -182,7 +182,9 @@ export class TremorStack extends Stack {
       IDENTITY_POOL_ID: idPool.ref, USER_POOL_PROVIDER: pool.userPoolProviderName, USER_POOL_ID: pool.userPoolId, USER_IOT_POLICY: userPolicy.ref,
     });
     table.grant(apiFn, 'dynamodb:Query', 'dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:DeleteItem', 'dynamodb:BatchWriteItem');
-    apiFn.addToRolePolicy(new iam.PolicyStatement({ actions: ['iot:AttachPolicy', 'iot:DetachPolicy'], resources: [arn(`policy/${userPolicy.ref}`)] }));
+    // IoT authorises Attach/DetachPolicy against the *target* (the Cognito identity id, which has no ARN), not the policy,
+    // so the resource must be '*'. The Lambda only ever passes USER_IOT_POLICY (its environment), and it attaches only to the caller's own verified identity.
+    apiFn.addToRolePolicy(new iam.PolicyStatement({ actions: ['iot:AttachPolicy', 'iot:DetachPolicy'], resources: ['*'] }));
     apiFn.addToRolePolicy(new iam.PolicyStatement({ actions: ['cognito-idp:AdminDeleteUser'], resources: [pool.userPoolArn] }));
     const api = new apigw.HttpApi(this, 'Api', {
       corsPreflight: { allowOrigins: origins_, allowHeaders: ['authorization', 'content-type'], allowMethods: [apigw.CorsHttpMethod.GET, apigw.CorsHttpMethod.PUT, apigw.CorsHttpMethod.POST, apigw.CorsHttpMethod.DELETE], maxAge: Duration.hours(1) },
