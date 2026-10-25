@@ -108,6 +108,19 @@ void connectWifi() {
   if (ssid.length() == 0) return;
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
+  static bool hooked = false;
+  if (!hooked) {
+    hooked = true;
+    static uint32_t lastReport = 0;
+    WiFi.onEvent([](arduino_event_id_t, arduino_event_info_t info) {
+      // reason 2/15/202 = wrong password, 201 = network not found (also 5 GHz-only networks), 205 = connection failed
+      uint32_t t = millis();
+      if (t - lastReport < 5000) return;
+      lastReport = t;
+      status("WIFI not connected, reason %d", (int)info.wifi_sta_disconnected.reason);
+    }, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
+    WiFi.onEvent([](arduino_event_id_t, arduino_event_info_t) { status("WIFI connected, ip %s rssi %d", WiFi.localIP().toString().c_str(), WiFi.RSSI()); }, ARDUINO_EVENT_WIFI_STA_GOT_IP);
+  }
   WiFi.begin(ssid.c_str(), pass.c_str());
   configTime(0, 0, "pool.ntp.org", "time.google.com");
   wifiWanted = true;
