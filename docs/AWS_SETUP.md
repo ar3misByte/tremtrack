@@ -154,7 +154,9 @@ node tools/aws/provision-device.mjs --thing htm-01 --owner "ap-south-1:<identity
 ## 5. See data arrive (simulator now, board in milestone 7)
 
 ```powershell
-npm run sim -- --mqtt tools/aws/out/htm-01/devsim.json --minutes 10
+cd tools\devsim
+npx tsx src/devsim.ts --mqtt ..\aws\out\htm-01\devsim.json --minutes 10
+cd ..\..
 ```
 
 *Expected:* `[devsim] connected to …-ats.iot.ap-south-1.amazonaws.com as htm-01`, then `event tremor_start`, `event episode`, … and a counter line every minute.
