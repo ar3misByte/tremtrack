@@ -114,7 +114,7 @@ try {
   check(list.patients?.length === 1 && list.patients[0].id === identityId && list.patients[0].devices?.some((d) => d.thing === thing), 'the doctor\'s patient list shows the patient and the headset');
   const detail = await api('GET', `/v1/doctor/patient?id=${encodeURIComponent(identityId)}&days=7`, docToken);
   check(detail.status === 200 && Array.isArray(detail.days) && Array.isArray(detail.events) && detail.events.length > 0, `the doctor reads the patient's days and events (${detail.events?.length} events)`);
-  check(!JSON.stringify(detail).includes('"meds"') && !JSON.stringify(detail).includes('"pk"'), 'no medications or internal keys in what the doctor reads');
+  check(!JSON.stringify(detail).includes('"pk"') && !JSON.stringify(detail).includes('"sk"'), 'no internal keys in what the doctor reads');
   check(detail.medsShared === false && (detail.meds?.length ?? 0) === 0, 'medications are not shared unless the patient chose to');
   check((detail.expiresAt ?? 0) > Date.now() + 29 * 86_400_000, 'access is limited to the 30 days the patient chose');
   const note = await api('POST', '/v1/doctor/notes', docToken, { id: identityId, text: 'e2e note' });
