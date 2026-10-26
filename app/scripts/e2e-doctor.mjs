@@ -53,6 +53,8 @@ try {
 
   // the patient side: make a code on the Cloud screen
   await page.goto(base + '/#/cloud');
+  await page.getByLabel('Doctor keeps access for').selectOption('30');
+  await page.getByLabel(/Also share my medication list/).check();
   await page.getByRole('button', { name: 'Make a code' }).click();
   const codeText = await page.locator('b', { hasText: /^[A-Z2-9]{5}-[A-Z2-9]{5}$/ }).first().textContent({ timeout: 10000 });
   console.log('the patient got a code: ' + codeText.replace(/[A-Z2-9]/g, '•'));
@@ -72,6 +74,26 @@ try {
   await page.getByText(/Possible fall .*the wearer said they are OK/).waitFor();
   await page.getByText(/Tremor episode, 30 s/).first().waitFor();
   console.log('the patient view shows the summary, the 30-day chart, a fall and tremor episodes');
+  await page.getByText(/No medications uploaded yet/).waitFor();
+  console.log('medications were shared on purpose, so the medication card is there (nothing synced yet)');
+
+  // the doctor's own tools: range, private note, CSV
+  await page.getByLabel('Show the last').selectOption('7');
+  await page.getByText('Severity, last 7 days').waitFor({ timeout: 10000 });
+  await page.getByLabel(/New note about/).fill('Review the dose timing at the next visit');
+  await page.getByRole('button', { name: 'Save note' }).click();
+  await page.locator('li p', { hasText: 'Review the dose timing at the next visit' }).waitFor({ timeout: 10000 });
+  const stored = [...mock.db.items.values()].filter((i) => String(i.sk).startsWith('NOTE#'));
+  if (stored.length !== 1 || !String(stored[0].pk).startsWith('DOC#')) await fail('the note should be stored under the doctor, not the patient');
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download CSV' }).click()]);
+  if (!/^tremor-.*\.csv$/.test(dl.suggestedFilename())) await fail('unexpected CSV file name ' + dl.suggestedFilename());
+  const { readFileSync } = await import('node:fs');
+  const csv = readFileSync(await dl.path(), 'utf8');
+  if (!csv.includes('Daily summary') || !csv.includes('Events')) await fail('the CSV lacks its sections');
+  console.log('range change, a private note and the CSV download work');
+  await page.getByRole('button', { name: /Delete the note/ }).click();
+  await page.locator('li p', { hasText: 'Review the dose timing at the next visit' }).waitFor({ state: 'detached', timeout: 10000 });
+  console.log('the note can be deleted');
   if (shots) await page.screenshot({ path: shots + 'desktop-14-doctor.png', fullPage: true });
   await axe(page, 'doctor dashboard (desktop)');
 
@@ -95,6 +117,11 @@ try {
   // the patient takes the access away
   await page.goto(base + '/#/cloud');
   await page.getByText('Who can see your data').waitFor();
+  await page.getByRole('button', { name: 'Refresh' }).click();
+  await page.getByText(/sees medications/).waitFor({ timeout: 10000 });
+  await page.getByText(/last looked/).waitFor();
+  await page.getByText(/until \d/).waitFor();
+  console.log('the patient sees how long the access lasts, that medications are shared, and when the doctor last looked');
   await page.getByRole('button', { name: 'Refresh' }).click();
   await page.getByRole('button', { name: 'Stop sharing' }).waitFor({ timeout: 10000 });
   await page.getByRole('button', { name: 'Stop sharing' }).click();

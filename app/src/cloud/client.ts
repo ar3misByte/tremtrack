@@ -18,12 +18,13 @@ export interface DoctorState {
   patients: PatientOverview[];               // most urgent first
   selected: string | null;
   detail: PatientDetail | null;
+  range: number;                             // days of history in the open patient (7, 30 or 90)
   loadedAt: number;
   busy: string | null;
   error: string | null;
   notice: string | null;
 }
-const noDoctor = (): DoctorState => ({ patients: [], selected: null, detail: null, loadedAt: 0, busy: null, error: null, notice: null });
+const noDoctor = (): DoctorState => ({ patients: [], selected: null, detail: null, range: 30, loadedAt: 0, busy: null, error: null, notice: null });
 
 export interface CloudState {
   config: CloudConfig | null;
@@ -186,10 +187,10 @@ class CloudClient {
   }
 
   // ---------- sharing with a doctor (patient side) ----------
-  async makeShareCode(name: string) {
+  async makeShareCode(name: string, days: number, meds: boolean) {
     if (!this.api) return;
     set({ busy: 'Making a code…', error: null });
-    try { set({ shareCode: await this.api.makeShareCode(name) }); }
+    try { set({ shareCode: await this.api.makeShareCode(name, days, meds) }); }
     catch (e) { set({ error: 'Could not make a code: ' + msg(e) }); }
     finally { set({ busy: null }); }
   }
@@ -225,11 +226,36 @@ class CloudClient {
     finally { this.doctorSet({ busy: null }); }
   }
 
-  async doctorOpen(id: string, days = 30) {
+  async doctorOpen(id: string, days = get().doctor.range) {
     if (!this.api) return;
-    this.doctorSet({ selected: id, busy: 'Loading patient…', error: null });
+    this.doctorSet({ selected: id, range: days, busy: 'Loading patient…', error: null });
     try { const detail = await this.api.patient(id, days); if (get().doctor.selected === id) this.doctorSet({ detail }); }
     catch (e) { this.doctorFail(e, 'Could not load this patient'); }
+    finally { this.doctorSet({ busy: null }); }
+  }
+
+  /** Marks the open patient's falls as seen; they stop flagging the patient until a new one happens. */
+  async doctorReview(id: string) {
+    if (!this.api) return;
+    this.doctorSet({ busy: 'Saving…', error: null });
+    try { await this.api.reviewPatient(id); await this.doctorRefresh(); }
+    catch (e) { this.doctorFail(e, 'Could not mark as reviewed'); }
+    finally { this.doctorSet({ busy: null }); }
+  }
+
+  async doctorAddNote(id: string, text: string): Promise<boolean> {
+    if (!this.api) return false;
+    this.doctorSet({ busy: 'Saving note…', error: null });
+    try { await this.api.addNote(id, text); await this.doctorOpen(id, get().doctor.range); return true; }
+    catch (e) { this.doctorFail(e, 'Could not save the note'); return false; }
+    finally { this.doctorSet({ busy: null }); }
+  }
+
+  async doctorDeleteNote(id: string, ts: number) {
+    if (!this.api) return;
+    this.doctorSet({ busy: 'Deleting note…', error: null });
+    try { await this.api.deleteNote(id, ts); await this.doctorOpen(id, get().doctor.range); }
+    catch (e) { this.doctorFail(e, 'Could not delete the note'); }
     finally { this.doctorSet({ busy: null }); }
   }
 

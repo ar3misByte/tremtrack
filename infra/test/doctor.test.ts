@@ -137,3 +137,115 @@ describe('sharing with a doctor', () => {
     expect(await multi('')).toBe(403);
   });
 });
+
+describe('how long, what, and who looked', () => {
+  it('a code can limit the period; access ends by itself, for both sides', async () => {
+    const s = await seeded();
+    expect((await s.patient('POST', '/v1/share', {}, { days: 7 })).status).toBe(400);              // only 30 / 90 / 365 / 0
+    const { code } = await s.patient('POST', '/v1/share', {}, { days: 30 });
+    const added = await s.doctor('POST', '/v1/doctor/patients', {}, { code });
+    expect(added.expiresAt).toBe(NOW + 30 * 86_400_000);
+    expect((await s.patient('GET', '/v1/share')).doctors[0].expiresAt).toBe(NOW + 30 * 86_400_000);
+    s.tick(31 * 86_400_000);
+    expect((await s.doctor('GET', '/v1/doctor/patient', { id: P1 })).status).toBe(404);
+    expect((await s.patient('GET', '/v1/share')).doctors).toEqual([]);
+    expect([...s.db.items.values()].filter((i) => String(i.pk).startsWith('DOC#') || String(i.sk).startsWith('ACC#'))).toHaveLength(0);
+  });
+
+  it('the default is 90 days, and "until I stop" never runs out', async () => {
+    const s = await seeded();
+    const a = await s.patient('POST', '/v1/share', {}, {});
+    expect(a.days).toBe(90);
+    await s.doctor('POST', '/v1/doctor/patients', {}, { code: a.code });
+    s.tick(89 * 86_400_000);
+    expect((await s.doctor('GET', '/v1/doctor/patient', { id: P1 })).status).toBe(200);
+    s.tick(2 * 86_400_000);
+    expect((await s.doctor('GET', '/v1/doctor/patient', { id: P1 })).status).toBe(404);
+    const b = await s.patient('POST', '/v1/share', {}, { days: 0 });
+    await s.doctor('POST', '/v1/doctor/patients', {}, { code: b.code });
+    s.tick(3000 * 86_400_000);
+    expect((await s.doctor('GET', '/v1/doctor/patient', { id: P1 })).status).toBe(200);
+  });
+
+  it('the patient sees when the doctor last looked', async () => {
+    const s = await seeded();
+    const { code } = await s.patient('POST', '/v1/share', {}, {});
+    await s.doctor('POST', '/v1/doctor/patients', {}, { code });
+    expect((await s.patient('GET', '/v1/share')).doctors[0].lastViewed).toBeNull();
+    s.tick(5 * 60_000);
+    await s.doctor('GET', '/v1/doctor/patient', { id: P1 });
+    expect((await s.patient('GET', '/v1/share')).doctors[0].lastViewed).toBe(NOW + 5 * 60_000);
+  });
+
+  it('medications and doses reach the doctor only when the patient ticked the box', async () => {
+    const s = await seeded();
+    await s.put({ pk: `U#${P1}`, sk: 'MD#m2', id: 'm2', name: 'Demo med', demo: true });
+    await s.put({ pk: `U#${P1}`, sk: 'MD#m1', id: 'm1', name: 'Secret medication', dose: '10 mg', times: ['08:00'], days: [], active: true, demo: false });
+    await s.put({ pk: `U#${P1}`, sk: 'DS#m1@1', id: 'm1@1', medId: 'm1', status: 'taken', loggedAt: NOW - 3_600_000, demo: false });
+    await s.put({ pk: `U#${P1}`, sk: 'DS#m1@2', id: 'm1@2', medId: 'm1', status: 'skipped', loggedAt: NOW - 100 * 86_400_000, demo: false });    // older than the window
+    const off = await s.patient('POST', '/v1/share', {}, {});
+    await s.doctor('POST', '/v1/doctor/patients', {}, { code: off.code });
+    const without = await s.doctor('GET', '/v1/doctor/patient', { id: P1 });
+    expect(without.medsShared).toBe(false);
+    expect(without.meds).toEqual([]);
+    expect(JSON.stringify(without)).not.toContain('Secret medication');
+    await s.patient('DELETE', '/v1/share', { doctor: 'doc-1' });
+    const on = await s.patient('POST', '/v1/share', {}, { meds: true });
+    await s.doctor('POST', '/v1/doctor/patients', {}, { code: on.code });
+    const withMeds = await s.doctor('GET', '/v1/doctor/patient', { id: P1, days: '30' });
+    expect(withMeds.medsShared).toBe(true);
+    expect(withMeds.meds.map((m: any) => m.name)).toEqual(['Secret medication']);      // the demo medication is left out
+    expect(withMeds.doses.map((x: any) => x.id)).toEqual(['m1@1']);
+    expect((await s.patient('GET', '/v1/share')).doctors[0].meds).toBe(true);
+  });
+});
+
+describe('the doctor tools', () => {
+  async function linkedDoctor() {
+    const s = await seeded();
+    const { code } = await s.patient('POST', '/v1/share', {}, {});
+    await s.doctor('POST', '/v1/doctor/patients', {}, { code });
+    return s;
+  }
+
+  it('notes are private to the doctor who wrote them, newest first, and can be deleted', async () => {
+    const s = await linkedDoctor();
+    const { code } = await s.patient('POST', '/v1/share', {}, {});
+    await s.doctor2('POST', '/v1/doctor/patients', {}, { code });                       // a second doctor also sees patient 1
+    const a = await s.doctor('POST', '/v1/doctor/notes', {}, { id: P1, text: '  Increase review frequency  ' });
+    s.tick(1000);
+    await s.doctor('POST', '/v1/doctor/notes', {}, { id: P1, text: 'Second note' });
+    const mine = await s.doctor('GET', '/v1/doctor/patient', { id: P1 });
+    expect(mine.notes.map((n: any) => n.text)).toEqual(['Second note', 'Increase review frequency']);
+    expect((await s.doctor2('GET', '/v1/doctor/patient', { id: P1 })).notes).toEqual([]);            // the other doctor sees nothing
+    expect((await s.patient('GET', '/v1/share')).doctors).toHaveLength(2);
+    expect(JSON.stringify(await s.patient('GET', '/v1/share'))).not.toContain('review frequency');   // and neither does the patient
+    expect((await s.doctor('DELETE', '/v1/doctor/notes', { id: P1, ts: String(a.ts) })).status).toBe(200);
+    expect((await s.doctor('GET', '/v1/doctor/patient', { id: P1 })).notes.map((n: any) => n.text)).toEqual(['Second note']);
+  });
+
+  it('notes need a linked patient and sensible text', async () => {
+    const s = await linkedDoctor();
+    expect((await s.doctor('POST', '/v1/doctor/notes', {}, { id: P1, text: '   ' })).status).toBe(400);
+    expect((await s.doctor('POST', '/v1/doctor/notes', {}, { id: P1, text: 'x'.repeat(2001) })).status).toBe(400);
+    expect((await s.doctor('POST', '/v1/doctor/notes', {}, { id: P2, text: 'not my patient' })).status).toBe(404);
+    expect((await s.patient('POST', '/v1/doctor/notes', {}, { id: P1, text: 'x' })).status).toBe(403);
+  });
+
+  it('marking reviewed clears the fall flag until a new fall happens', async () => {
+    const s = await linkedDoctor();
+    const before = (await s.doctor('GET', '/v1/doctor/patients')).patients[0];
+    expect(before).toMatchObject({ falls7: 1, unreviewedFalls: 1, reviewedAt: null });
+    expect(before.lastFallTs).toBe(NOW - 3_600_000);
+    const t = s.tick(60_000);
+    expect((await s.doctor('POST', '/v1/doctor/review', {}, { id: P1 })).reviewedAt).toBe(t);
+    const after = (await s.doctor('GET', '/v1/doctor/patients')).patients[0];
+    expect(after).toMatchObject({ falls7: 1, unreviewedFalls: 0, lastFallTs: null, reviewedAt: t });   // still counted, no longer urgent
+    expect((await s.doctor('GET', '/v1/doctor/patient', { id: P1 })).reviewedAt).toBe(t);
+    const t2 = s.tick(60_000);
+    await s.put({ pk: `U#${P1}`, sk: `E#${String(t2 - 1000).padStart(13, '0')}#htm-01#9`, ts: t2 - 1000, type: 'fall', fall: { outcome: 'confirmed', peakG: 4 } });
+    const again = (await s.doctor('GET', '/v1/doctor/patients')).patients[0];
+    expect(again).toMatchObject({ falls7: 2, unreviewedFalls: 1, lastFallTs: t2 - 1000 });
+    expect((await s.doctor2('POST', '/v1/doctor/review', {}, { id: P1 })).status).toBe(404);          // only the linked doctor can review
+  });
+});

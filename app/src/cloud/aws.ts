@@ -55,13 +55,16 @@ export class Api {
   syncPut(records: Record<string, unknown[]>) { return this.request<{ stored: number }>('PUT', '/v1/sync', records); }
   syncGet<K extends string>(kind: K, since = 0) { return this.request<Record<K, Record<string, unknown>[]>>('GET', `/v1/sync?kind=${kind}&since=${since}`); }
   // sharing with a doctor (patient side)
-  makeShareCode(name: string) { return this.request<{ code: string; expiresAt: number }>('POST', '/v1/share', { name }); }
+  makeShareCode(name: string, days: number, meds: boolean) { return this.request<{ code: string; expiresAt: number; days: number; meds: boolean }>('POST', '/v1/share', { name, days, meds }); }
   shares() { return this.request<{ doctors: ShareRow[] }>('GET', '/v1/share'); }
   revokeShare(doctor: string) { return this.request<{ removed: boolean }>('DELETE', `/v1/share?doctor=${encodeURIComponent(doctor)}`); }
   // doctor side (needs the "doctors" group; each patient needs the patient's consent)
   addPatient(code: string) { return this.request<{ patientId: string; label: string }>('POST', '/v1/doctor/patients', { code }); }
   patients() { return this.request<{ patients: PatientRow[] }>('GET', '/v1/doctor/patients'); }
   patient(id: string, days = 30) { return this.request<PatientDetail>('GET', `/v1/doctor/patient?id=${encodeURIComponent(id)}&days=${days}`); }
+  addNote(id: string, text: string) { return this.request<{ ts: number }>('POST', '/v1/doctor/notes', { id, text }); }
+  deleteNote(id: string, ts: number) { return this.request<{ removed: boolean }>('DELETE', `/v1/doctor/notes?id=${encodeURIComponent(id)}&ts=${ts}`); }
+  reviewPatient(id: string) { return this.request<{ reviewedAt: number }>('POST', '/v1/doctor/review', { id }); }
   removePatient(id: string) { return this.request<{ removed: boolean }>('DELETE', `/v1/doctor/patients?id=${encodeURIComponent(id)}`); }
   deleteMe(account: boolean) { return this.request<{ deleted: number; account: boolean }>('DELETE', `/v1/me${account ? '?account=true' : ''}`); }
 }
@@ -70,10 +73,17 @@ export interface DeviceRow { thing?: string; online?: boolean; lastSeen?: number
 export interface DayRow { day: string; score?: number | null; episodes?: number; falls?: number; monitoredS?: number; tremorS?: number; restingBpm?: number | null; restingSpo2?: number | null; maxEpisodeScore?: number | null }
 export interface CloudEventRow { ts: number; type: string; thing?: string; ep?: { start: number; end: number; durationS: number; axes: number[]; pattern: string; ampDps: number; freqHz: number; score: number; bpm: number | null }; fall?: { t: number; path: string; peakG: number; outcome: string }; level?: number; ax?: number; f?: number }
 
-export interface ShareRow { doctor: string; email: string | null; since: number }
+export interface ShareRow { doctor: string; email: string | null; since: number; expiresAt: number | null; meds: boolean; lastViewed: number | null }
 export interface PatientDay { day: string; score: number | null; episodes: number; falls: number; monitoredS: number; restingBpm: number | null; restingSpo2: number | null }
-export interface PatientRow { id: string; label: string; since: number; devices: DeviceRow[]; days: PatientDay[]; falls7: number; lastFallTs: number | null }
+export interface PatientRow { id: string; label: string; since: number; expiresAt?: number | null; reviewedAt?: number | null; devices: DeviceRow[]; days: PatientDay[]; falls7: number; unreviewedFalls?: number; lastFallTs: number | null }
 /** An episode the patient's app uploaded (Sync): the same fields as the app's own Episode record. */
 export interface SyncedEpisode { id: string; start: number; end?: number; durationS: number; freqHz?: number; ampDps?: number; peakAmpDps?: number; score?: number; axes?: number[]; pattern?: string; bpm?: number | null; walkingFrac?: number }
 export interface SyncedVital { id: string; t: number; bpm: number; spo2: number | null; quality?: string }
-export interface PatientDetail { id: string; label: string; since: number; devices: DeviceRow[]; days: DayRow[]; events: CloudEventRow[]; episodes: SyncedEpisode[]; vitals: SyncedVital[] }
+export interface SyncedMed { id: string; name: string; dose?: string; times?: string[]; days?: number[]; active?: boolean }
+export interface SyncedDose { id: string; medId: string; scheduledFor: number | null; takenAt: number | null; status: 'taken' | 'skipped'; loggedAt: number }
+export interface DoctorNote { ts: number; text: string }
+export interface PatientDetail {
+  id: string; label: string; since: number; expiresAt: number | null; reviewedAt: number | null; medsShared: boolean;
+  devices: DeviceRow[]; days: DayRow[]; events: CloudEventRow[]; episodes: SyncedEpisode[]; vitals: SyncedVital[];
+  notes: DoctorNote[]; meds: SyncedMed[]; doses: SyncedDose[];
+}

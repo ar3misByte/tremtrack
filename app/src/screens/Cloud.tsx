@@ -17,13 +17,15 @@ const ago = (ms: number) => {
 function ShareWithDoctor() {
   const c = useCloud();
   const [name, setName] = useState('');
+  const [days, setDays] = useState(90);
+  const [meds, setMeds] = useState(false);
   const left = c.shareCode ? Math.max(0, c.shareCode.expiresAt - Date.now()) : 0;
   return (
     <section className="card" aria-label="Share with my doctor">
       <div className="card-title"><span>Share with my doctor</span></div>
       <p className="fine">
         A doctor with a doctor account can see your daily scores, falls, tremor episodes and resting heart rate and SpO₂ estimates, only after you give them a code.
-        They cannot see your medications or notes. You can stop sharing at any time.
+        They cannot see your tags or notes, and medications only if you tick the box below. You choose how long they keep access, and you can stop sharing at any time.
       </p>
       {c.shareCode && left > 0 && (
         <div className="notice" role="status">
@@ -31,17 +33,33 @@ function ShareWithDoctor() {
           <span className="fine" style={{ display: 'block' }}>Works once. Valid for about {Math.max(1, Math.round(left / 3_600_000))} h. Give it to your doctor in person or by phone, not in a public place.</span>
         </div>
       )}
-      <form className="field-row" onSubmit={(e) => { e.preventDefault(); void cloud.makeShareCode(name.trim()); }}>
+      <form className="field-row" onSubmit={(e) => { e.preventDefault(); void cloud.makeShareCode(name.trim(), days, meds); }}>
         <label htmlFor="share-name" className="sr-only">Name your doctor will see (optional)</label>
         <input id="share-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Name your doctor will see (optional)" maxLength={60} style={{ flex: 1, minWidth: 0 }} />
         <button className="btn sm" type="submit" disabled={!!c.busy}>{c.shareCode && left > 0 ? 'New code' : 'Make a code'}</button>
       </form>
+      <div className="field-row" style={{ marginTop: 'var(--s-2)', flexWrap: 'wrap' }}>
+        <label htmlFor="share-days" className="fine">Doctor keeps access for</label>
+        <select id="share-days" style={{ width: "auto" }} value={days} onChange={(e) => setDays(Number(e.target.value))}>
+          <option value={30}>30 days</option>
+          <option value={90}>90 days</option>
+          <option value={365}>1 year</option>
+          <option value={0}>until I stop it</option>
+        </select>
+      </div>
+      <label className="check" style={{ marginTop: 'var(--s-2)' }}><input type="checkbox" checked={meds} onChange={(e) => setMeds(e.target.checked)} /> Also share my medication list and dose log (you must have synced them with the box ticked above)</label>
       <h2 className="fine" style={{ margin: 'var(--s-3) 0 var(--s-1)' }}>Who can see your data</h2>
       {c.shares.length === 0 && <p className="fine">Nobody.</p>}
       <ul className="plain">
         {c.shares.map((s) => (
           <li key={s.doctor} style={{ display: 'flex', justifyContent: 'space-between', gap: 'var(--s-3)', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--line)' }}>
-            <span>{s.email ?? 'A doctor'}<br /><span className="fine">since {new Date(s.since).toLocaleDateString()}</span></span>
+            <span>
+              {s.email ?? 'A doctor'}<br />
+              <span className="fine">
+                since {new Date(s.since).toLocaleDateString()} · {s.expiresAt ? `until ${new Date(s.expiresAt).toLocaleDateString()}` : 'until you stop it'} · {s.meds ? 'sees medications' : 'no medications'}
+                <br />{s.lastViewed ? `last looked ${ago(s.lastViewed)}` : 'has not looked yet'}
+              </span>
+            </span>
             <button className="btn sm" disabled={!!c.busy} onClick={() => void cloud.revokeShare(s.doctor)}>Stop sharing</button>
           </li>
         ))}

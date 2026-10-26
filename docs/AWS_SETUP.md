@@ -228,7 +228,9 @@ The same app has a doctor screen at `#/doctor`. It is part of the app (the same 
    The doctor signs out and in again (the group is written into the sign-in token) and lands on the dashboard.
 2. **A patient shares.** In the patient's app: **Cloud → Share with my doctor → Make a code**, and read the code to the doctor (works once, 24 hours).
 3. **The doctor adds the patient** on the dashboard (**Add a patient**). The list shows each patient with their 7-day average, trend, falls, headset status and a sparkline, most urgent first; a click opens the details (severity chart, resting heart rate and SpO₂, falls and episodes, synced episode table).
-4. **Stopping:** the patient taps **Stop sharing**, or the doctor taps **Stop seeing this patient**. Either removes access at once.
+4. **Choices the patient makes with the code:** how long the doctor keeps access (30 days, 90 days, 1 year or until stopped; it ends by itself), and whether medications and the dose log are included (off by default; the patient must have synced them with the medication box ticked). The patient sees each doctor's access, its end date and when the doctor last looked.
+5. **The doctor's tools:** a 7 / 30 / 90-day range, **Mark falls as reviewed** (reviewed falls stop flagging the patient, new ones do), private **notes** per patient (the patient and other doctors cannot read them), the medication card with doses taken and skipped, and **Download CSV**.
+6. **Stopping:** the patient taps **Stop sharing**, or the doctor taps **Stop seeing this patient**. Either removes access at once.
 
 The same account can be both a patient and a doctor, which is how you can try it alone: make your own account a doctor, make a code on the Cloud screen, and add it on the dashboard.
 

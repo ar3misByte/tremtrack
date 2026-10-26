@@ -183,7 +183,7 @@ export class TremorStack extends Stack {
     const apiFn = fn('ApiFn', 'api.ts', 15, {
       IDENTITY_POOL_ID: idPool.ref, USER_POOL_PROVIDER: pool.userPoolProviderName, USER_POOL_ID: pool.userPoolId, USER_IOT_POLICY: userPolicy.ref,
     });
-    table.grant(apiFn, 'dynamodb:Query', 'dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:DeleteItem', 'dynamodb:BatchWriteItem');
+    table.grant(apiFn, 'dynamodb:Query', 'dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:DeleteItem', 'dynamodb:BatchWriteItem', 'dynamodb:UpdateItem');
     // IoT authorises Attach/DetachPolicy against the *target* (the Cognito identity id, which has no ARN), not the policy,
     // so the resource must be '*'. The Lambda only ever passes USER_IOT_POLICY (its environment), and it attaches only to the caller's own verified identity.
     apiFn.addToRolePolicy(new iam.PolicyStatement({ actions: ['iot:AttachPolicy', 'iot:DetachPolicy'], resources: ['*'] }));
@@ -200,6 +200,7 @@ export class TremorStack extends Stack {
       ['/v1/events', apigw.HttpMethod.GET], ['/v1/telemetry', apigw.HttpMethod.GET], ['/v1/sync', apigw.HttpMethod.PUT], ['/v1/sync', apigw.HttpMethod.GET],
       ['/v1/share', apigw.HttpMethod.POST], ['/v1/share', apigw.HttpMethod.GET], ['/v1/share', apigw.HttpMethod.DELETE],
       ['/v1/doctor/patients', apigw.HttpMethod.POST], ['/v1/doctor/patients', apigw.HttpMethod.GET], ['/v1/doctor/patients', apigw.HttpMethod.DELETE], ['/v1/doctor/patient', apigw.HttpMethod.GET],
+      ['/v1/doctor/notes', apigw.HttpMethod.POST], ['/v1/doctor/notes', apigw.HttpMethod.DELETE], ['/v1/doctor/review', apigw.HttpMethod.POST],
     ];
     for (const [pth, m] of routes) api.addRoutes({ path: pth, methods: [m], integration: integ, authorizer: auth });
 

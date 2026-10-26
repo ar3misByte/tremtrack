@@ -57,9 +57,10 @@ One table (`TremorStack-Table…`, `ap-south-1`), keys `pk` / `sk` (strings), TT
 | Alert throttle | `U#owner` | `N#kind` | events Lambda, aggregator | when the last alert of this kind was sent | 30 min (low SpO₂: 2 days) |
 | Synced app records | `U#owner` | `EP#ts13#id`, `SE#…`, `TG#…`, `MD#id`, `DS#id`, `RV#…`, `FE#…` | `PUT /v1/sync` | the app's own rows (episodes, sessions, tags, medications, doses, resting vitals, falls), each ≤ 8 KB | kept until deleted |
 | Profile link | `P#sub` | `PROFILE` | `POST /v1/me/link` | the identity id this sign-in owns, after the API checked it with Cognito | kept until the account is deleted |
-| Share code | `SHARE#code` | `CODE` | `POST /v1/share` | `owner`, `label` (the name the doctor will see), `expiresAt` (24 h); deleted when used | 48 h (TTL) |
-| Doctor access (patient side) | `U#owner` | `ACC#doctorSub` | `POST /v1/doctor/patients` | the doctor's sub and email, since when | until the patient or doctor removes it, or the patient deletes their data |
-| Doctor access (doctor side) | `DOC#doctorSub` | `PT#owner` | `POST /v1/doctor/patients` | `label`, `since`; every doctor read checks this item | same |
+| Share code | `SHARE#code` | `CODE` | `POST /v1/share` | `owner`, `label` (the name the doctor will see), `meds` (share medications), `durationDays` (30 / 90 / 365 / none), `expiresAt` (24 h); deleted when used | 48 h (TTL) |
+| Doctor access (patient side) | `U#owner` | `ACC#doctorSub` | `POST /v1/doctor/patients` | the doctor's sub and email, since when, `meds`, `expiresAt`, `lastViewed` | until the patient or doctor removes it, it expires, or the patient deletes their data |
+| Doctor access (doctor side) | `DOC#doctorSub` | `PT#owner` | `POST /v1/doctor/patients` | `label`, `since`, `meds`, `expiresAt`, `reviewedAt` (falls up to then no longer flag the patient); every doctor read checks this item and removes it once expired | same |
+| Doctor note | `DOC#doctorSub` | `NOTE#owner#ts13` | `POST /v1/doctor/notes` | `text` (up to 2000 characters), `ts`; only that doctor can read it | until the doctor deletes it (kept when the patient stops sharing) |
 | Device registry | `DEVICES` | `thing` | rule `tremor_status` | `owner`, `lastSeen`, `tzMin`, `online`, `aggHour` (the aggregator's cursor) | kept until the device is removed |
 
 **Access patterns, all queries:**

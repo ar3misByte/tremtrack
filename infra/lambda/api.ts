@@ -8,16 +8,19 @@
 //   GET    /v1/sync?kind=&since=   read synced records back (other devices / reinstall)
 //   DELETE /v1/me[?account=true]   delete all of the user's cloud data (and optionally the account)
 // Sharing with a doctor (consent comes from the patient: a one-time code they hand over, revocable any time):
-//   POST   /v1/share               patient: make a code {name?} (valid 24 h, one use)
-//   GET    /v1/share               patient: the doctors who can see their data
+//   POST   /v1/share               patient: make a code {name?, days?: 0|30|90|365, meds?} (valid 24 h, one use; days = how long the doctor keeps access, 0 = until stopped)
+//   GET    /v1/share               patient: the doctors who can see their data, until when, whether medications are shared, and when they last looked
 //   DELETE /v1/share?doctor=<sub>  patient: take a doctor's access away
 // Doctor routes (the caller must be in the Cognito group "doctors" AND the patient must have shared with them):
 //   POST   /v1/doctor/patients {code}        add a patient with the code they gave
 //   GET    /v1/doctor/patients               patients with their devices and the last 14 days
-//   GET    /v1/doctor/patient?id=&days=      one patient: devices, days, events, synced episodes and resting vitals
+//   GET    /v1/doctor/patient?id=&days=      one patient: devices, days, events, synced episodes, resting vitals, the doctor's notes, and medications if shared
+//   POST   /v1/doctor/notes {id,text}        a private note about a patient (only this doctor can read it)
+//   DELETE /v1/doctor/notes?id=&ts=          delete one of those notes
+//   POST   /v1/doctor/review {id}            mark the patient's falls as seen (they stop flagging the patient)
 //   DELETE /v1/doctor/patients?id=           stop seeing a patient
 import type { APIGatewayProxyEventV2WithJWTAuthorizer } from 'aws-lambda';
-import { BatchWriteCommand, DeleteCommand, GetCommand, PutCommand, QueryCommand, type DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
+import { BatchWriteCommand, DeleteCommand, GetCommand, PutCommand, QueryCommand, UpdateCommand, type DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 import { CognitoIdentityClient, GetIdCommand } from '@aws-sdk/client-cognito-identity';
 import { IoTClient, AttachPolicyCommand, DetachPolicyCommand } from '@aws-sdk/client-iot';
 import { CognitoIdentityProviderClient, AdminDeleteUserCommand } from '@aws-sdk/client-cognito-identity-provider';
@@ -44,6 +47,9 @@ const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';        // no I, L, O, 0
 const CODE_RE = /^[ABCDEFGHJKMNPQRSTUVWXYZ2-9]{10}$/;
 const SUB_RE = /^[\w-]{1,64}$/;
 const CODE_TTL_MS = 24 * 3_600_000;
+const DAY_MS = 86_400_000;
+const SHARE_DAYS = [0, 30, 90, 365];                       // how long a doctor keeps access; 0 = until the patient stops it
+const NOTE_MAX = 2000;
 const defaultCode = () => Array.from({ length: 10 }, () => CODE_ALPHABET[randomInt(CODE_ALPHABET.length)]).join('');
 /** API Gateway hands array claims over as the string "[doctors]" (a test may pass the array itself). */
 const isDoctor = (c: Record<string, unknown>) => /(^|[[\s,])doctors([\],\s]|$)/.test(String(c['cognito:groups'] ?? ''));
@@ -103,41 +109,54 @@ export function makeHandler(d: Deps) {
       if (e.rawPath.startsWith('/v1/doctor/')) {
         if (!isDoctor(c)) return json(403, { error: 'This account is not a doctor account.' });
         const doctorKey = K.doctor(sub);
-        // a doctor sees a patient only through a link the patient created with their code
-        const linked = async (pid: string) => (await d.db.send(new GetCommand({ TableName: d.table, Key: { pk: doctorKey, sk: `PT#${pid}` } }))).Item as { label?: string; since?: number } | undefined;
+        type Link = { label?: string; since?: number; meds?: boolean; expiresAt?: number | null; reviewedAt?: number | null };
+        const p13 = (n: number) => String(Math.round(n)).padStart(13, '0');
+        const dropLink = async (pid: string) => { await del(doctorKey, `PT#${pid}`); await del(K.user(pid), `ACC#${sub}`); };
+        const runOut = (l: Link) => typeof l.expiresAt === 'number' && l.expiresAt < now();
+        /** The doctor's link to a patient, or undefined when there is none or the patient's chosen period has run out (removed on the spot). */
+        const linked = async (pid: string): Promise<Link | undefined> => {
+          const l = (await d.db.send(new GetCommand({ TableName: d.table, Key: { pk: doctorKey, sk: `PT#${pid}` } }))).Item as Link | undefined;
+          if (l && runOut(l)) { await dropLink(pid); return undefined; }
+          return l;
+        };
+        const readBody = (): Record<string, unknown> | null => { try { return JSON.parse(e.body || '{}'); } catch { return null; } };
 
         if (route === 'POST /v1/doctor/patients') {
-          let body: { code?: unknown };
-          try { body = JSON.parse(e.body ?? '{}'); } catch { return json(400, { error: 'invalid JSON' }); }
+          const body = readBody();
+          if (!body) return json(400, { error: 'invalid JSON' });
           const code = String(body.code ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
           if (!CODE_RE.test(code)) return json(400, { error: 'A code has 10 letters and digits, for example K7M2Q-9XPD4.' });
-          const it = (await d.db.send(new GetCommand({ TableName: d.table, Key: { pk: K.share(code), sk: 'CODE' } }))).Item as { owner: string; label: string; expiresAt: number } | undefined;
+          const it = (await d.db.send(new GetCommand({ TableName: d.table, Key: { pk: K.share(code), sk: 'CODE' } }))).Item as { owner: string; label: string; expiresAt: number; meds?: boolean; durationDays?: number | null } | undefined;
           if (!it || it.expiresAt < now()) return json(404, { error: 'That code is not valid, was already used, or has expired. Ask the patient for a new one.' });
-          await d.db.send(new PutCommand({ TableName: d.table, Item: { pk: doctorKey, sk: `PT#${it.owner}`, label: it.label, since: now() } }));
-          await d.db.send(new PutCommand({ TableName: d.table, Item: { pk: K.user(it.owner), sk: `ACC#${sub}`, doctor: sub, email: c.email ?? null, since: now() } }));
+          const until = it.durationDays ? now() + it.durationDays * DAY_MS : null;
+          const meds = it.meds === true;
+          await d.db.send(new PutCommand({ TableName: d.table, Item: { pk: doctorKey, sk: `PT#${it.owner}`, label: it.label, since: now(), meds, expiresAt: until, reviewedAt: null } }));
+          await d.db.send(new PutCommand({ TableName: d.table, Item: { pk: K.user(it.owner), sk: `ACC#${sub}`, doctor: sub, email: c.email ?? null, since: now(), meds, expiresAt: until, lastViewed: null } }));
           await del(K.share(code), 'CODE');
           log('info', 'patient shared with a doctor');
-          return json(200, { patientId: it.owner, label: it.label });
+          return json(200, { patientId: it.owner, label: it.label, expiresAt: until, meds });
         }
 
         if (route === 'GET /v1/doctor/patients') {
           const links = await queryAll(d, { TableName: d.table, KeyConditionExpression: 'pk = :p AND begins_with(sk, :s)', ExpressionAttributeValues: { ':p': doctorKey, ':s': 'PT#' } }, 200);
           const t = now();
-          const from = localDay(t - 13 * 86_400_000, DEFAULT_TZ_MIN), to = localDay(t, DEFAULT_TZ_MIN);
+          const from = localDay(t - 13 * DAY_MS, DEFAULT_TZ_MIN), to = localDay(t, DEFAULT_TZ_MIN);
           const patients = [];
-          for (const l of links) {
+          for (const l of links as (Link & Record<string, unknown>)[]) {
             const pid = String(l.sk).slice(3);
+            if (runOut(l)) { await dropLink(pid); continue; }
             const [devices, days, events] = await Promise.all([
               queryAll(d, { TableName: d.table, KeyConditionExpression: 'pk = :p AND begins_with(sk, :d)', ExpressionAttributeValues: { ':p': K.user(pid), ':d': 'D#' } }),
               queryAll(d, { TableName: d.table, KeyConditionExpression: 'pk = :p AND sk BETWEEN :a AND :b', ExpressionAttributeValues: { ':p': K.user(pid), ':a': K.day(from), ':b': K.day(to) } }),
-              queryAll(d, { TableName: d.table, KeyConditionExpression: 'pk = :p AND sk BETWEEN :a AND :b', ExpressionAttributeValues: { ':p': K.user(pid), ':a': `E#${String(t - 7 * 86_400_000).padStart(13, '0')}`, ':b': `E#${String(t).padStart(13, '0')}~` } }),
+              queryAll(d, { TableName: d.table, KeyConditionExpression: 'pk = :p AND sk BETWEEN :a AND :b', ExpressionAttributeValues: { ':p': K.user(pid), ':a': `E#${p13(t - 7 * DAY_MS)}`, ':b': `E#${p13(t)}~` } }),
             ]);
             const falls = events.filter((x) => x.type === 'fall' && ['confirmed', 'no-response'].includes(String((x.fall as { outcome?: string } | undefined)?.outcome)));
+            const unseen = falls.filter((x) => Number(x.ts) > (l.reviewedAt ?? 0));
             patients.push({
-              id: pid, label: l.label, since: l.since,
+              id: pid, label: l.label, since: l.since, expiresAt: l.expiresAt ?? null, reviewedAt: l.reviewedAt ?? null,
               devices: devices.map((x) => ({ thing: x.thing, online: x.online, lastSeen: x.lastSeen, fw: x.fw })),
               days: days.map(compactDay),
-              falls7: falls.length, lastFallTs: falls.length ? Math.max(...falls.map((x) => Number(x.ts))) : null,
+              falls7: falls.length, unreviewedFalls: unseen.length, lastFallTs: unseen.length ? Math.max(...unseen.map((x) => Number(x.ts))) : null,
             });
           }
           return json(200, { patients });
@@ -150,31 +169,65 @@ export function makeHandler(d: Deps) {
           if (!link) return json(404, { error: 'This patient has not shared with you (or stopped sharing).' });
           const span = Math.min(90, Math.max(7, Number(q.days) || 30));
           const t = now();
-          const from = t - span * 86_400_000;
+          const from = t - span * DAY_MS;
           const range = (a: string, b: string) => ({ TableName: d.table, KeyConditionExpression: 'pk = :p AND sk BETWEEN :a AND :b', ExpressionAttributeValues: { ':p': K.user(pid), ':a': a, ':b': b } });
-          const p13 = (n: number) => String(Math.round(n)).padStart(13, '0');
-          const [devices, days, events, episodes, vitals] = await Promise.all([
-            queryAll(d, { TableName: d.table, KeyConditionExpression: 'pk = :p AND begins_with(sk, :d)', ExpressionAttributeValues: { ':p': K.user(pid), ':d': 'D#' } }),
+          const prefix = (pk: string, s2: string) => ({ TableName: d.table, KeyConditionExpression: 'pk = :p AND begins_with(sk, :s)', ExpressionAttributeValues: { ':p': pk, ':s': s2 } });
+          const [devices, days, events, episodes, vitals, notes, meds, doses] = await Promise.all([
+            queryAll(d, prefix(K.user(pid), 'D#')),
             queryAll(d, range(K.day(localDay(from, DEFAULT_TZ_MIN)), K.day(localDay(t, DEFAULT_TZ_MIN)))),
             queryAll(d, range(`E#${p13(from)}`, `E#${p13(t)}~`)),
             queryAll(d, range(`EP#${p13(from)}`, `EP#${p13(t)}~`)),
             queryAll(d, range(`RV#${p13(from)}`, `RV#${p13(t)}~`)),
+            queryAll(d, prefix(doctorKey, `NOTE#${pid}#`), 500),
+            link.meds ? queryAll(d, prefix(K.user(pid), 'MD#'), 200) : Promise.resolve([]),          // medications only when the patient ticked the box with this code
+            link.meds ? queryAll(d, prefix(K.user(pid), 'DS#'), 3000) : Promise.resolve([]),
           ]);
+          // the patient can see when a doctor last looked (best effort: a revoked link is not recreated)
+          await d.db.send(new UpdateCommand({ TableName: d.table, Key: { pk: K.user(pid), sk: `ACC#${sub}` }, UpdateExpression: 'SET lastViewed = :v', ConditionExpression: 'attribute_exists(pk)', ExpressionAttributeValues: { ':v': t } })).catch(() => {});
           return json(200, {
-            id: pid, label: link.label, since: link.since,
+            id: pid, label: link.label, since: link.since, expiresAt: link.expiresAt ?? null, reviewedAt: link.reviewedAt ?? null, medsShared: link.meds === true,
             devices: devices.map(strip),
             days: days.map((x) => Object.fromEntries(Object.entries(strip(x)).filter(([k]) => !/^h\d\d_/.test(k)))),
             events: events.map(strip).sort((a, b) => Number(b.ts) - Number(a.ts)).slice(0, 300),
             episodes: episodes.map(strip).filter((x) => !x.demo).sort((a, b) => Number(b.start) - Number(a.start)).slice(0, 300),
             vitals: vitals.map(strip).filter((x) => !x.demo).sort((a, b) => Number(b.t) - Number(a.t)).slice(0, 300),
+            notes: notes.map((x) => ({ ts: x.ts, text: x.text })).sort((a, b) => Number(b.ts) - Number(a.ts)),
+            meds: meds.map(strip).filter((x) => !x.demo),
+            doses: doses.map(strip).filter((x) => !x.demo && Number(x.loggedAt) >= from).sort((a, b) => Number(b.loggedAt) - Number(a.loggedAt)).slice(0, 1000),
           });
+        }
+
+        if (route === 'POST /v1/doctor/notes') {
+          const body = readBody();
+          const pid = String(body?.id ?? '');
+          const text = typeof body?.text === 'string' ? body.text.trim() : '';
+          if (!body || !IDENTITY_RE.test(pid) || !text || text.length > NOTE_MAX) return json(400, { error: `A note needs a patient id and 1 to ${NOTE_MAX} characters.` });
+          if (!(await linked(pid))) return json(404, { error: 'This patient has not shared with you (or stopped sharing).' });
+          const ts = now();
+          await d.db.send(new PutCommand({ TableName: d.table, Item: { pk: doctorKey, sk: `NOTE#${pid}#${p13(ts)}`, pid, ts, text } }));
+          return json(200, { ts });
+        }
+
+        if (route === 'DELETE /v1/doctor/notes') {
+          const pid = qp(q.id), ts = Number(q.ts);
+          if (!IDENTITY_RE.test(pid) || !(ts > 0)) return json(400, { error: 'id and ts required' });
+          await del(doctorKey, `NOTE#${pid}#${p13(ts)}`);
+          return json(200, { removed: true });
+        }
+
+        if (route === 'POST /v1/doctor/review') {
+          const pid = String(readBody()?.id ?? '');
+          if (!IDENTITY_RE.test(pid)) return json(400, { error: 'id missing or malformed' });
+          if (!(await linked(pid))) return json(404, { error: 'This patient has not shared with you (or stopped sharing).' });
+          const reviewedAt = now();
+          await d.db.send(new UpdateCommand({ TableName: d.table, Key: { pk: doctorKey, sk: `PT#${pid}` }, UpdateExpression: 'SET reviewedAt = :v', ExpressionAttributeValues: { ':v': reviewedAt } }));
+          return json(200, { reviewedAt });
         }
 
         if (route === 'DELETE /v1/doctor/patients') {
           const pid = qp(q.id);
           if (!IDENTITY_RE.test(pid)) return json(400, { error: 'id missing or malformed' });
-          await del(doctorKey, `PT#${pid}`);
-          await del(K.user(pid), `ACC#${sub}`);
+          await dropLink(pid);
           return json(200, { removed: true });
         }
         return json(404, { error: 'not found' });
@@ -184,18 +237,26 @@ export function makeHandler(d: Deps) {
       if (!id) return json(409, { error: 'not linked: call POST /v1/me/link first' });
 
       if (route === 'POST /v1/share') {
-        let body: { name?: unknown } = {};
+        let body: { name?: unknown; days?: unknown; meds?: unknown } = {};
         try { body = JSON.parse(e.body || '{}'); } catch { return json(400, { error: 'invalid JSON' }); }
         const name = typeof body.name === 'string' ? body.name.trim().slice(0, 60) : '';
+        const days = body.days === undefined ? 90 : Number(body.days);
+        if (!SHARE_DAYS.includes(days)) return json(400, { error: `days must be one of ${SHARE_DAYS.join(', ')} (0 = until you stop it)` });
+        const meds = body.meds === true;
         const code = (d.newCode ?? defaultCode)();
         const expiresAt = now() + CODE_TTL_MS;
-        await d.db.send(new PutCommand({ TableName: d.table, Item: { pk: K.share(code), sk: 'CODE', owner: id, label: name || c.email || 'Patient', expiresAt, ttl: Math.floor((expiresAt + CODE_TTL_MS) / 1000) } }));
-        return json(200, { code, expiresAt });
+        await d.db.send(new PutCommand({ TableName: d.table, Item: { pk: K.share(code), sk: 'CODE', owner: id, label: name || c.email || 'Patient', meds, durationDays: days || null, expiresAt, ttl: Math.floor((expiresAt + CODE_TTL_MS) / 1000) } }));
+        return json(200, { code, expiresAt, days, meds });
       }
 
       if (route === 'GET /v1/share') {
-        const doctors = (await queryAll(d, { TableName: d.table, KeyConditionExpression: 'pk = :p AND begins_with(sk, :s)', ExpressionAttributeValues: { ':p': K.user(id), ':s': 'ACC#' } })).map(strip);
-        return json(200, { doctors });
+        const all = await queryAll(d, { TableName: d.table, KeyConditionExpression: 'pk = :p AND begins_with(sk, :s)', ExpressionAttributeValues: { ':p': K.user(id), ':s': 'ACC#' } });
+        const live = [];
+        for (const x of all) {
+          if (typeof x.expiresAt === 'number' && x.expiresAt < now()) { await del(K.user(id), String(x.sk)); await del(K.doctor(String(x.sk).slice(4)), `PT#${id}`); }
+          else live.push(strip(x));
+        }
+        return json(200, { doctors: live });
       }
 
       if (route === 'DELETE /v1/share') {

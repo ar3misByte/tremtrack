@@ -103,7 +103,8 @@ try {
   const docToken = aws(['cognito-idp', 'admin-initiate-auth', '--user-pool-id', out.UserPoolId, '--client-id', out.UserPoolClientId, '--auth-flow', 'ADMIN_USER_PASSWORD_AUTH', '--auth-parameters', `USERNAME=${docEmail},PASSWORD=${password}`], o).AuthenticationResult.IdToken;
   check((await api('GET', '/v1/doctor/patients', idToken)).status === 403, 'a patient account cannot use the doctor routes');
   check((await api('GET', `/v1/doctor/patient?id=${encodeURIComponent(identityId)}`, docToken)).status === 404, 'a doctor sees nothing before the patient shares');
-  const share = await api('POST', '/v1/share', idToken, { name: 'E2E patient' });
+  check((await api('POST', '/v1/share', idToken, { days: 7 })).status === 400, 'a share period must be 30, 90, 365 or 0');
+  const share = await api('POST', '/v1/share', idToken, { name: 'E2E patient', days: 30, meds: false });
   check(share.status === 200 && /^[A-Z2-9]{10}$/.test(share.code ?? ''), 'POST /v1/share makes a code');
   check((await api('POST', '/v1/doctor/patients', docToken, { code: 'ZZZZZZZZZZ' })).status === 404, 'a wrong code is refused');
   const added = await api('POST', '/v1/doctor/patients', docToken, { code: share.code });
@@ -114,6 +115,16 @@ try {
   const detail = await api('GET', `/v1/doctor/patient?id=${encodeURIComponent(identityId)}&days=7`, docToken);
   check(detail.status === 200 && Array.isArray(detail.days) && Array.isArray(detail.events) && detail.events.length > 0, `the doctor reads the patient's days and events (${detail.events?.length} events)`);
   check(!JSON.stringify(detail).includes('"meds"') && !JSON.stringify(detail).includes('"pk"'), 'no medications or internal keys in what the doctor reads');
+  check(detail.medsShared === false && (detail.meds?.length ?? 0) === 0, 'medications are not shared unless the patient chose to');
+  check((detail.expiresAt ?? 0) > Date.now() + 29 * 86_400_000, 'access is limited to the 30 days the patient chose');
+  const note = await api('POST', '/v1/doctor/notes', docToken, { id: identityId, text: 'e2e note' });
+  check(note.status === 200, 'the doctor saves a private note');
+  const again = await api('GET', `/v1/doctor/patient?id=${encodeURIComponent(identityId)}&days=7`, docToken);
+  check(again.notes?.[0]?.text === 'e2e note', 'the doctor reads the note back');
+  check(!JSON.stringify(await api('GET', '/v1/share', idToken)).includes('e2e note'), 'the patient cannot see the note');
+  check((await api('POST', '/v1/doctor/review', docToken, { id: identityId })).status === 200, 'mark falls as reviewed');
+  const seen = (await api('GET', '/v1/share', idToken)).doctors?.[0];
+  check(seen && seen.lastViewed > 0 && seen.meds === false, 'the patient sees when the doctor last looked');
   check((await api('GET', '/v1/share', idToken)).doctors?.length === 1, 'the patient sees who has access');
   const doctorSub = (await api('GET', '/v1/share', idToken)).doctors?.[0]?.doctor;
   check((await api('DELETE', `/v1/share?doctor=${encodeURIComponent(doctorSub)}`, idToken)).status === 200, 'the patient stops sharing');

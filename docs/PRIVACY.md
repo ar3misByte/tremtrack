@@ -53,10 +53,14 @@ The cloud is **optional**. The app works fully signed out, and nothing leaves th
 
 **Sharing with a doctor (optional, off until you do it).** Nobody can see your data unless you give them a one-time code from **Cloud → Share with my doctor**.
 - **Who:** only an account an administrator added to the Cognito group `doctors` can use the doctor routes, and then only for patients who gave that doctor a code. Signing up in the app never makes anyone a doctor.
-- **What the doctor sees:** your name or email as you gave it, headset status, daily scores, episode and fall counts, falls and tremor episodes with their outcome, resting heart rate and SpO₂ estimates, and the episodes you synced. **Not** medication names, doses, dose logs, tags or the live view.
+- **What the doctor sees:** your name or email as you gave it, headset status, daily scores, episode and fall counts, falls and tremor episodes with their outcome, resting heart rate and SpO₂ estimates, and the episodes you synced. **Not** tags, notes or the live view. **Medication names, doses and the dose log only if you tick "Also share my medication list and dose log" when you make the code** (and only what you synced with the medication box ticked); to change that, stop sharing and make a new code.
 - **The code:** 10 characters, works once, valid for 24 hours, stored until it is used or expires. Anyone who has it before the doctor does could add themselves as a doctor if they hold a doctor account, so give it to your doctor in person or by phone.
+- **How long:** you choose when you make the code: 30 days, 90 days (the default), 1 year, or until you stop it. When the time is up the doctor's access ends by itself and the link is removed.
+- **Who looked:** the Cloud screen shows each doctor's access, how long it lasts, whether medications are shared, and when they last opened your data.
+- **Doctor's notes:** a doctor can write private notes about you. They belong to the doctor, are stored under the doctor's account, and are **not** deleted when you stop sharing or delete your cloud data (clinical notes are the doctor's record). The patient cannot read them.
 - **Stopping it:** **Stop sharing** (in the app) removes that doctor's access immediately; deleting your cloud data removes every doctor link. A doctor can also remove a patient from their own list.
-- **Records of access:** the doctor's account id and email are stored with your data so you can see who has access. The API does not keep a log of each read.
+- **Records of access:** the doctor's account id and email are stored with your data so you can see who has access, with the time of the last look. The API does not keep a log of every read.
+- **Exports:** a doctor can download a patient's data as a CSV file. What they do with the file afterwards is outside this system.
 
 **Protection:**
 - **In transit:** TLS for everything. The device uses MQTT over TLS with its own X.509 certificate; the browser uses HTTPS and MQTT over WSS.

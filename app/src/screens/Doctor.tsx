@@ -7,7 +7,7 @@ import { cloud, useCloud } from '../cloud/client';
 import { cloudDaySummaries } from '../cloud/days';
 import type { PatientDetail, SyncedEpisode } from '../cloud/aws';
 import { eventText } from '../cloud/eventText';
-import { overview, type PatientOverview } from '../cloud/doctorView';
+import { adherence, overview, patientCsv, type PatientOverview } from '../cloud/doctorView';
 import { fmtDuration, fmtScore } from '../logic/labels';
 
 const ago = (ms: number) => {
@@ -60,6 +60,73 @@ function PatientCard({ o, active }: { o: PatientOverview; active: boolean }) {
   );
 }
 
+function downloadCsv(d: PatientDetail) {
+  const blob = new Blob(['\uFEFF' + patientCsv(d)], { type: 'text/csv;charset=utf-8' });      // the BOM makes Excel read the ° and ₂ correctly
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `tremor-${d.label.replace(/[^\w.-]+/g, '_')}-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/** The doctor's own notes about this patient. Only this doctor can read them; the patient cannot. */
+function Notes({ detail }: { detail: PatientDetail }) {
+  const [text, setText] = useState('');
+  return (
+    <section className="card" aria-label="My notes">
+      <div className="card-title"><span>My notes</span></div>
+      <p className="fine">Private to you: the patient and other doctors cannot see them. They stay in your account if the patient stops sharing.</p>
+      <form onSubmit={(e) => { e.preventDefault(); void cloud.doctorAddNote(detail.id, text.trim()).then((ok) => { if (ok) setText(''); }); }} style={{ display: 'grid', gap: 'var(--s-2)' }}>
+        <label htmlFor="doc-note" className="sr-only">New note about {detail.label}</label>
+        <textarea id="doc-note" rows={3} maxLength={2000} value={text} onChange={(e) => setText(e.target.value)} placeholder="Add a note, for example a change to the plan" style={{ width: '100%' }} />
+        <div className="btn-row"><button className="btn sm" type="submit" disabled={!text.trim()}>Save note</button></div>
+      </form>
+      <ul className="plain">
+        {detail.notes.map((n) => (
+          <li key={n.ts} style={{ padding: '8px 0', borderBottom: '1px solid var(--line)' }}>
+            <span className="fine">{new Date(n.ts).toLocaleString()}</span>
+            <p style={{ margin: '2px 0', whiteSpace: 'pre-wrap' }}>{n.text}</p>
+            <button className="btn sm" onClick={() => void cloud.doctorDeleteNote(detail.id, n.ts)} aria-label={`Delete the note from ${new Date(n.ts).toLocaleString()}`}>Delete</button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function Medications({ detail, range }: { detail: PatientDetail; range: number }) {
+  const rows = useMemo(() => adherence(detail.meds, detail.doses, Date.now(), range), [detail.meds, detail.doses, range]);
+  return (
+    <section className="card" aria-label="Medication">
+      <div className="card-title"><span>Medication</span></div>
+      {!detail.medsShared && <p className="fine">The patient has not shared their medications with you.</p>}
+      {detail.medsShared && rows.length === 0 && <p className="fine">No medications uploaded yet. They appear after the patient syncs with the medication box ticked.</p>}
+      {rows.length > 0 && (
+        <div style={{ overflowX: 'auto' }}>
+          <table className="data-table">
+            <caption className="sr-only">Medications and the doses the patient logged in the last {range} days</caption>
+            <thead><tr><th scope="col">Medication</th><th scope="col">Taken</th><th scope="col">Skipped</th><th scope="col">Share taken</th><th scope="col">Last taken</th></tr></thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.med.id}>
+                  <th scope="row">{r.med.name}{r.med.dose ? ` ${r.med.dose}` : ''}{r.med.active === false ? ' (stopped)' : ''}<br /><span className="fine">{r.med.times?.join(', ')}</span></th>
+                  <td>{r.taken}</td><td>{r.skipped}</td>
+                  <td>{r.share === null ? '–' : `${Math.round(r.share * 100)} %`}</td>
+                  <td>{r.lastTakenAt ? new Date(r.lastTakenAt).toLocaleString() : '–'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="fine">Counts come from the doses the patient logged in their app, so a dose they did not log is not counted as skipped.</p>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function EpisodeTable({ eps }: { eps: SyncedEpisode[] }) {
   if (eps.length === 0) return <p className="fine">No episode details yet. They appear after the patient taps Sync now in their app.</p>;
   return (
@@ -84,9 +151,9 @@ function EpisodeTable({ eps }: { eps: SyncedEpisode[] }) {
   );
 }
 
-function PatientView({ detail, o }: { detail: PatientDetail; o: PatientOverview | undefined }) {
+function PatientView({ detail, o, range, busy }: { detail: PatientDetail; o: PatientOverview | undefined; range: number; busy: boolean }) {
   const [confirm, setConfirm] = useState(false);
-  const { days, avg } = useMemo(() => cloudDaySummaries(detail.days, 30), [detail.days]);
+  const { days, avg } = useMemo(() => cloudDaySummaries(detail.days, range), [detail.days, range]);
   const scored = days.filter((d) => d.score !== null);
   const sorted = useMemo(() => [...detail.days].sort((a, b) => a.day.localeCompare(b.day)), [detail.days]);
   const bpm: MiniPoint[] = sorted.map((d) => ({ t: dayMs(d.day), v: typeof d.restingBpm === 'number' ? d.restingBpm : null }));
@@ -103,7 +170,18 @@ function PatientView({ detail, o }: { detail: PatientDetail; o: PatientOverview 
             {detail.devices.map((d) => <span key={d.thing} className={`chip ${d.online ? 'ok' : 'quiet'}`}>{d.thing} · {d.online ? 'online' : d.lastSeen ? `heard ${ago(d.lastSeen)}` : 'offline'}</span>)}
           </span>
         </div>
-        <p className="fine">Sharing since {new Date(detail.since).toLocaleDateString()}. The patient can stop sharing at any time.</p>
+        <p className="fine">
+          Sharing since {new Date(detail.since).toLocaleDateString()}{detail.expiresAt ? `, until ${new Date(detail.expiresAt).toLocaleDateString()}` : ''}. The patient can stop sharing at any time.
+          {detail.reviewedAt ? ` You marked their falls as reviewed ${ago(detail.reviewedAt)}.` : ''}
+        </p>
+        <div className="btn-row" style={{ alignItems: 'center', flexWrap: 'wrap' }}>
+          <label htmlFor="doc-range" className="fine">Show the last</label>
+          <select id="doc-range" value={range} disabled={busy} style={{ width: "auto" }} onChange={(e) => void cloud.doctorOpen(detail.id, Number(e.target.value))}>
+            <option value={7}>7 days</option><option value={30}>30 days</option><option value={90}>90 days</option>
+          </select>
+          <button className="btn sm" disabled={busy || !o || o.unreviewedFalls === 0} onClick={() => void cloud.doctorReview(detail.id)} title="Falls you have looked at stop flagging this patient">Mark falls as reviewed</button>
+          <button className="btn sm" onClick={() => downloadCsv(detail)}>Download CSV</button>
+        </div>
         {o && o.flags.length > 0 && (
           <div className={`notice ${o.flags.some((f) => f.level === 'alert') ? 'warn' : ''}`} role="status">
             {o.flags.map((f) => <span key={f.text} style={{ display: 'block' }}>{f.level === 'alert' ? 'Needs attention: ' : 'Look at: '}{f.text}</span>)}
@@ -120,8 +198,8 @@ function PatientView({ detail, o }: { detail: PatientDetail; o: PatientOverview 
       </section>
 
       <section className="card" aria-label="Daily severity score">
-        <div className="card-title"><span>Severity, last 30 days</span></div>
-        {scored.length === 0 ? <p className="fine">No scored days yet. A day needs at least 10 minutes of wear to get a score.</p> : <DailyChart days={days} avg={avg} title={`Daily severity score for ${detail.label}, last 30 days`} />}
+        <div className="card-title"><span>Severity, last {range} days</span></div>
+        {scored.length === 0 ? <p className="fine">No scored days yet. A day needs at least 10 minutes of wear to get a score.</p> : <DailyChart days={days} avg={avg} title={`Daily severity score for ${detail.label}, last ${range} days`} />}
       </section>
 
       {(hasBpm || hasSpo2) && (
@@ -135,7 +213,7 @@ function PatientView({ detail, o }: { detail: PatientDetail; o: PatientOverview 
 
       <section className="card" aria-label="Recent events">
         <div className="card-title"><span>Falls and tremor episodes</span></div>
-        {events.length === 0 && <p className="fine">Nothing in the last 30 days.</p>}
+        {events.length === 0 && <p className="fine">Nothing in the last {range} days.</p>}
         <ul className="plain">
           {events.map((e, i) => (
             <li key={`${e.ts}-${i}`} style={{ padding: '6px 0', borderBottom: '1px solid var(--line)' }}>
@@ -145,10 +223,14 @@ function PatientView({ detail, o }: { detail: PatientDetail; o: PatientOverview 
         </ul>
       </section>
 
+      <Medications detail={detail} range={range} />
+
       <section className="card" aria-label="Episode details">
         <div className="card-title"><span>Episode details</span></div>
         <EpisodeTable eps={detail.episodes} />
       </section>
+
+      <Notes detail={detail} />
 
       <section className="card" aria-label="Stop seeing this patient">
         {!confirm
@@ -232,7 +314,7 @@ export default function Doctor() {
             </div>
             <div style={{ minWidth: 0 }}>
               {d.selected && d.detail && d.detail.id === d.selected
-                ? <PatientView key={d.selected} detail={d.detail} o={selected ?? overview({ id: d.detail.id, label: d.detail.label, since: d.detail.since, devices: d.detail.devices, days: [], falls7: 0, lastFallTs: null })} />
+                ? <PatientView key={d.selected} detail={d.detail} o={selected ?? overview({ id: d.detail.id, label: d.detail.label, since: d.detail.since, devices: d.detail.devices, days: [], falls7: 0, lastFallTs: null })} range={d.range} busy={!!d.busy} />
                 : d.selected ? <p className="fine" role="status">Loading…</p>
                   : <p className="fine">{d.patients.length ? 'Choose a patient to see the details.' : ''}</p>}
             </div>
